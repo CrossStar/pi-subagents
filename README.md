@@ -1,4 +1,6 @@
-# @tintinweb/pi-subagents
+# @crossstar/pi-subagents
+
+This is the [CrossStar fork](https://github.com/CrossStar/pi-subagents), based on [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents). Version 0.24.0 includes native execution backends. Install this fork from Git; it is marked private and is not published to npm. Upstream badges, media and historical references below describe the upstream project.
 
 <p align="center">
   <b>English</b> ·
@@ -40,7 +42,7 @@
   <a href="https://github.com/tintinweb/pi-subagents/blob/master/CHANGELOG.md"><b>Changelog</b></a>
 </p>
 
-<p align="center"><code>pi install npm:@tintinweb/pi-subagents</code></p>
+<p align="center"><code>pi install git:github.com/CrossStar/pi-subagents</code></p>
 
 A [pi](https://pi.dev) extension that brings **Claude Code-style autonomous sub-agents and workflow orchestration** to pi. Spawn specialized agents that run in isolated sessions — each with its own tools, system prompt, model, and thinking level. Run them in the background (the default) or block on them, steer them mid-run, resume completed sessions, and define your own custom agent types. When the orchestration shouldn't be improvised, hand a deterministic JavaScript script to the `SubagentWorkflow` tool — `agent()`, `parallel()`, `pipeline()` — and scripts written for Claude Code's `Workflow` tool run here unchanged.
 
@@ -83,7 +85,7 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 ## Install
 
 ```bash
-pi install npm:@tintinweb/pi-subagents
+pi install git:github.com/CrossStar/pi-subagents
 ```
 
 Or load directly for development:
@@ -868,6 +870,7 @@ Agent lifecycle events are emitted via `pi.events.emit()` so other extensions ca
 | `subagents:scheduled` | Schedule lifecycle change | `{ type: "added" \| "removed" \| "updated" \| "fired" \| "error", … }` (job/agentId/error fields per type) |
 | `subagents:scheduler_ready` | Scheduler bound to session, enabled jobs armed | `sessionId`, `jobCount` |
 | `subagents:ready` | RPC handlers registered and armed — fired on session start; not emitted in a session that excludes pi-subagents | `{}` (empty object) |
+| `subagents:execution-backend:v1` | Synchronous discovery at execution admission; active providers claim before fallible capture | `version: 1`, `cwd`, `claim(provider)` — see [Execution backends](docs/execution-backends.md) |
 | `subagents:settings_loaded` | Persisted settings applied at extension init | `settings` (merged global + project) |
 | `subagents:settings_changed` | `/agents` → Settings mutation was applied | `settings`, `persisted` (`boolean` — `false` on write failure) |
 
@@ -876,6 +879,10 @@ The four agent-lifecycle events — `subagents:started`, `:completed`, `:failed`
 `tokens.total` = `input + output + cacheWrite`. `cacheRead` is excluded — each turn's `cacheRead` is the cumulative cached prefix re-read on that one API call, so summing per-message would over-count it as a measure of work done. Use `contextUsage.percent` (surfaced as `(NN%)` in the widget) for current context size.
 
 `usage` answers the other question — what was billed — and so does include `cacheRead`, because the prefix really is re-read and re-charged on every call. It is a pi `Usage`, the same shape pi puts on `ToolResultEvent` and `AssistantMessage`, so `usage.cost.total` is where a listener already expects the money and anything pi adds to `Usage` arrives without a change here. Neither field derives from the other; `tokens` is a view model, `usage` is the data.
+
+## Execution backends
+
+Extension authors can supply the exact built-in execution tools through `subagents:execution-backend:v1`. Admission captures an environment once; queued work, workflow children and same-manager session reopen retain that binding. Model execution, authentication, config and session storage stay local, while tools and execution prompt fields use the captured environment. External v1 bindings support tools only: worktrees, explicit cwd overrides, memory, nesting, explicit extensions/skills and shell gates are refused; ambient extensions and skills are disabled. See [Execution backends](docs/execution-backends.md) for signatures, provider obligations and cleanup behavior. Bindings are process-local objects, never RPC options. After restart, local and legacy local sessions recover from their saved cwd without provider discovery; external sessions require their original retained binding and are refused when it is lost.
 
 ## Cross-Extension RPC
 
@@ -1077,6 +1084,7 @@ This is useful for creating agents that inherit extension tools but should not h
 docs/                 # Long-form guides (shipped to npm; README links out to them)
   workflows.md        # SubagentWorkflow: writing, editing, saving and re-running scripts
   rpc.md              # Cross-extension integration: pi.events, subagents:rpc:*, manager registry
+  execution-backends.md # Execution provider discovery, capture, preparation and ownership
 examples/
   workflows/          # Runnable examples, executed by test/workflow-examples.test.ts
   agent-tool-description.md
@@ -1094,6 +1102,7 @@ src/
   agent-color.ts      # Claude Code/Agency Agents name color parsing and badge rendering
 
   # Execution
+  execution-backend.ts # Discovery, capabilities, preparation, resource ownership and local recovery
   agent-runner.ts     # Session creation, execution, graceful max_turns, steer/resume
   agent-manager.ts    # Agent lifecycle, concurrency queue, completion notifications
   nested-tools.ts     # Delegation tools handed to subagents (nested spawn/collect/steer)

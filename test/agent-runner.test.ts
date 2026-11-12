@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type * as CodingAgent from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -25,21 +26,23 @@ const {
     },
   },
   getAgentDir: vi.fn(() => "/mock/agent-dir"),
-  sessionManagerInMemory: vi.fn(() => ({ kind: "memory-session-manager" })),
-  sessionManagerCreate: vi.fn(() => ({ kind: "persistent-session-manager" })),
+  sessionManagerInMemory: vi.fn(() => Object.defineProperty({ kind: "memory-session-manager" }, "appendCustomEntry", { value: vi.fn() })),
+  sessionManagerCreate: vi.fn(() => Object.defineProperty({ kind: "persistent-session-manager" }, "appendCustomEntry", { value: vi.fn() })),
   // A child session this parent spawned: its header names the parent's file
   // (`ctx` below), so a resume reopens it in place.
   sessionManagerOpen: vi.fn((_path: string, _dir?: string) => ({
     kind: "reopened-session-manager",
+    appendCustomEntry: vi.fn(),
     getHeader: () => ({ parentSession: "/sessions/parent.jsonl" }),
     getCwd: () => "/child-cwd",
   })),
-  sessionManagerForkFrom: vi.fn(() => ({ kind: "forked-session-manager" })),
+  sessionManagerForkFrom: vi.fn(() => Object.defineProperty({ kind: "forked-session-manager" }, "appendCustomEntry", { value: vi.fn() })),
   settingsManagerGetSessionDir: vi.fn(() => undefined as string | undefined),
   settingsManagerCreate: vi.fn(() => ({ kind: "settings-manager", getSessionDir: settingsManagerGetSessionDir })),
 }));
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
+vi.mock("@earendil-works/pi-coding-agent", async importOriginal => ({
+  ...await importOriginal<typeof CodingAgent>(),
   createAgentSession,
   // The runner forwards these to the child loader's `extensionFactories`. Stubbed
   // to the shape pi returns: a factory that registers nothing.
@@ -199,6 +202,7 @@ function createSession(finalText: string) {
     agent: { beforeToolCall: undefined } as {
       beforeToolCall?: (context: any, signal?: any) => Promise<any>;
     },
+    dispose: vi.fn(),
     setSessionName: vi.fn(),
     bindExtensions: vi.fn(async () => {}),
   };
@@ -1048,6 +1052,7 @@ describe("agent-runner session persistence", () => {
     settingsManagerGetSessionDir.mockReturnValue("/normal/pi/sessions");
     sessionManagerOpen.mockReturnValueOnce({
       kind: "reopened-session-manager",
+      appendCustomEntry: vi.fn(),
       getHeader: () => ({ parentSession: "/sessions/original-parent.jsonl" }),
       getCwd: () => "/child-cwd",
     });
@@ -1095,6 +1100,7 @@ describe("agent-runner session persistence", () => {
     vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig());
     sessionManagerOpen.mockReturnValueOnce({
       kind: "reopened-session-manager",
+      appendCustomEntry: vi.fn(),
       getHeader: () => ({}),
       getCwd: () => "/child-cwd",
     } as any);
@@ -3236,7 +3242,7 @@ describe("agent-runner abort signal forwarding", () => {
     const { session } = createSession("SHOULD NOT RUN");
     createAgentSession.mockResolvedValue({ session });
 
-    await runAgent(ctx, "Explore", "go", { pi, signal: controller.signal });
+    await expect(runAgent(ctx, "Explore", "go", { pi, signal: controller.signal })).rejects.toThrow();
 
     expect(session.prompt).not.toHaveBeenCalled();
   });

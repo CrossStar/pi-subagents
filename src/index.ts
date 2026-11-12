@@ -27,6 +27,7 @@ import { inChildSessionContext } from "./child-context.js";
 import { CompletionOutbox, NOTIFICATION_HOLD_MS } from "./completion-outbox.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
+import { admitExecutionBackend, EXECUTION_BINDING, type ExecutionBackendBinding } from "./execution-backend.js";
 import { GroupJoinManager } from "./group-join.js";
 import { isolationParam, resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
 import { describeMention, handleBase, isReservedHandle, parseMention, resolveHandleToType, stripAgentPrefix } from "./mention.js";
@@ -2625,13 +2626,17 @@ Terse command-style prompts produce shallow, generic work.
    * source, non-JSON `args`) is a failed workflow, and both callers here are
    * detached — a rejection would surface as an unhandled one.
    */
+  const workflowBindings = new WeakMap<WorkflowTask, ExecutionBackendBinding>();
   async function runWorkflowTask(ctx: ExtensionContext, task: WorkflowTask): Promise<void> {
     try {
+      const binding = workflowBindings.get(task);
+      if (!binding) throw new Error("Workflow execution binding unavailable");
       const result = await runWorkflow({
         script: task.script,
         args: task.args,
         signal: task.abortController.signal,
         host: createWorkflowHost({
+          [EXECUTION_BINDING]: binding,
           pi,
           ctx,
           manager,
@@ -2775,6 +2780,11 @@ Terse command-style prompts produce shallow, generic work.
     execute: async (toolCallId, params, _signal, _onUpdate, ctx) => {
       const resumeFrom = resolveResumeTarget(params.resumeFromRunId, workflowTasks);
       if (resumeFrom !== undefined && !resumeFrom.ok) return textResult(resumeFrom.message);
+      const previous = params.resumeFromRunId !== undefined ? workflowTasks.get(params.resumeFromRunId) : undefined;
+      const binding = params.resumeFromRunId !== undefined
+        ? previous && workflowBindings.get(previous)
+        : admitExecutionBackend(pi, ctx.cwd);
+      if (!binding) throw new Error("Workflow execution binding unavailable for resume");
 
       // A resume with no source of its own re-runs what that run ran. The
       // common case is an edited script, but "run that again, cheaply" should
@@ -2828,6 +2838,7 @@ Terse command-style prompts produce shallow, generic work.
         ...(journalPath !== undefined ? { journalPath } : {}),
         ...(replay !== undefined && replay.length > 0 ? { replay, resumedFrom: resumeFrom!.runId } : {}),
       });
+      workflowBindings.set(task, binding);
       workflowTasks.set(runId, task);
       // The run's own row has to appear now, not when it settles. Its agents
       // are owned by it, so their lifecycle callbacks no longer refresh these
@@ -2968,6 +2979,11 @@ Terse command-style prompts produce shallow, generic work.
       return;
     }
 
+    let binding: ExecutionBackendBinding;
+    try { binding = admitExecutionBackend(pi, ctx.cwd); } catch (error) {
+      report(String(error), "warning");
+      return;
+    }
     const path = isAbsolute(flag.trim()) ? flag.trim() : join(ctx.cwd, flag.trim());
     let script: string;
     try {
@@ -2986,6 +3002,7 @@ Terse command-style prompts produce shallow, generic work.
     }
 
     const task = createWorkflowTask({ id: workflowRunId(), script, scriptPath: path, meta });
+    workflowBindings.set(task, binding);
     workflowTasks.set(task.id, task);
     widget.update();
     fleet.update();

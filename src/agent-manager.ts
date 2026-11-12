@@ -25,6 +25,7 @@ import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-wor
 import { worktreeLost } from "./agent-record-entry.js";
 import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
 import { getAgentConfig } from "./agent-types.js";
+import { admitExecutionBackend, assertExecutionCapabilities, createLocalExecutionBackend, disposeExecutionResources, EXECUTION_BINDING, type ExecutionBackendBinding, isLocalExecutionBackend, recoverLocalExecutionBackend } from "./execution-backend.js";
 import { assignHandle, handleBase } from "./mention.js";
 import { describeModel } from "./model-resolver.js";
 import type { AgentInvocation, AgentRecord, AgentTombstone, IsolationMode, MentionResolution, Pool, SubagentType, ThinkingLevel } from "./types.js";
@@ -180,6 +181,7 @@ interface SpawnArgs {
 }
 
 interface SpawnOptions {
+  [EXECUTION_BINDING]?: ExecutionBackendBinding;
   description: string;
   /**
    * Optional memorable name for this instance, becoming a second handle
@@ -384,9 +386,17 @@ async function shutdownChildSession(session: AgentSession | undefined): Promise<
   } catch { /* a partial session must degrade, not take the teardown down with it */ }
   // Always, even on timeout: disposal is what this function ultimately exists to do.
   try { session?.dispose?.(); } catch { /* ignore */ }
+  if (session) {
+    try { await disposeExecutionResources(session); } catch (error) {
+      console.warn("[pi-subagents] execution resource cleanup failed", error);
+    }
+  }
 }
 
 export class AgentManager {
+  private disposed = false;
+  private sessionBindings = new Map<string, ExecutionBackendBinding>();
+  private executionBindings = new Map<string, ExecutionBackendBinding>();
   private agents = new Map<string, AgentRecord>();
   private cleanupInterval: ReturnType<typeof setInterval>;
   private onComplete?: OnAgentComplete;
@@ -549,7 +559,26 @@ export class AgentManager {
     // Validate before the queue branch — a queued spawn should fail at the
     // call, not minutes later at drain. Throw (not warn): programmatic callers
     // can fix and retry; the RPC layer converts throws into error envelopes.
-    assertValidSpawnCwd(options.cwd);
+    if (this.disposed) throw new Error("Agent manager is disposed");
+    const backend = options.resumeSessionFile
+      ? this.sessionBindings.get(options.resumeSessionFile) ?? recoverLocalExecutionBackend(options.resumeSessionFile)
+      : options[EXECUTION_BINDING] ?? (options.parentAgentId !== undefined
+        ? this.executionBindings.get(options.parentAgentId)
+        : admitExecutionBackend(pi, options.cwd ?? ctx.cwd));
+    if (!backend) throw new Error("Execution binding unavailable for reopened session");
+    const config = getAgentConfig(type);
+    const isolated = config?.isolated ?? options.isolated;
+    assertExecutionCapabilities(backend, {
+      cwdOverride: options.cwd != null,
+      worktree: !options.resumeSessionFile && (options.workflowId !== undefined ? options.isolation : config?.isolation ?? options.isolation) === "worktree" && isWorktreeIsolationEnabled(),
+      memory: !!config?.memory,
+      nesting: !isolated && !!config?.allowedSubagents,
+      extensions: !isolated && !!(config?.extSelectors?.length || config?.mcpToolPatterns?.length || Array.isArray(config?.extensions)),
+      skills: !isolated && Array.isArray(config?.skills),
+    });
+    if (isLocalExecutionBackend(backend)) assertValidSpawnCwd(options.resumeSessionFile ? backend.cwd : options.cwd);
+    options = { ...options };
+    ctx = Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, { cwd: ctx.cwd });
 
     // Nested fan-out is capped by refusing, not queueing: a nested child cannot
     // queue — its parent waits on it while holding a slot — so refusing is the
@@ -628,6 +657,7 @@ export class AgentManager {
       // never saved.
       sessionFile: options.resumeSessionFile,
     };
+    if (backend) this.executionBindings.set(id, backend);
     this.agents.set(id, record);
     // After the insert, so `takenHandles()` already counts this record's own
     // handle — a spawn named after its own type gets `explore-2`, not a
@@ -745,6 +775,7 @@ export class AgentManager {
           this.onComplete?.(record);
         } else {
           this.agents.delete(id);
+          this.executionBindings.delete(id);
         }
         // The agent never kept its slot (startAgent gives it back on failure),
         // so anything queued behind it can go now.
@@ -781,7 +812,8 @@ export class AgentManager {
     // Re-validate a caller-supplied cwd: queued spawns can start minutes after
     // spawn()'s check, and the directory may be gone by then (TOCTOU). Same
     // curated errors; drainQueue parks a throw on the record as an error.
-    assertValidSpawnCwd(options.cwd);
+    const executionBackend = this.executionBindings.get(id);
+    if (!executionBackend || isLocalExecutionBackend(executionBackend)) assertValidSpawnCwd(options.cwd);
     // Single resolution point for the caller-supplied cwd — the worktree base
     // repo and both cleanup calls below MUST agree on this value forever.
     const customCwd = options.cwd ?? undefined; // null (RPC "unset") → undefined
@@ -873,7 +905,10 @@ export class AgentManager {
     else this.armParentAbort(record, options.signal);
     const detach = () => this.detachParentAbort(record);
 
+    const effectiveBackend = worktreeCwd ? createLocalExecutionBackend(worktreeCwd) : executionBackend;
+    if (effectiveBackend) this.executionBindings.set(id, effectiveBackend);
     const promise = runAgent(ctx, type, prompt, {
+      executionBackend: effectiveBackend,
       pi,
       agentId: id,
       model: options.model,
@@ -919,6 +954,7 @@ export class AgentManager {
         maxSubagentDepth: record.maxSubagentDepth,
       },
       onSessionCreated: (session) => {
+        if (this.disposed) throw new Error("Agent manager disposed during session creation");
         record.session = session;
         // Capture now, while the session object exists: after eviction this
         // path is the only thing that can reopen the conversation, and an
@@ -929,6 +965,7 @@ export class AgentManager {
         // stubbed session must degrade to "not resumable" rather than throw
         // and take the whole spawn down with it.
         record.sessionFile = session.sessionManager?.getSessionFile?.();
+        if (record.sessionFile && effectiveBackend) this.sessionBindings.set(record.sessionFile, effectiveBackend);
         // Same reason, different field: the model and thinking level are only
         // knowable once pi has resolved its defaults and clamped the level to
         // what the model supports. Writing them back here makes the record
@@ -1637,6 +1674,7 @@ export class AgentManager {
     // nothing can observe a session that is half torn down.
     record.session = undefined;
     this.agents.delete(id);
+    this.executionBindings.delete(id);
     // A failed startup keeps its (rejected) entry so a late awaitStartup still
     // sees it; drop it with the record so the map can't grow unbounded.
     this.startups.delete(id);
@@ -1760,12 +1798,16 @@ export class AgentManager {
    *   it (tests, teardown of a manager that never spawned) skips the prune.
    */
   async dispose(pi?: ExtensionAPI): Promise<void> {
+    this.disposed = true;
+    this.abortAll();
     clearInterval(this.cleanupInterval);
     // Clear queue — via dequeue, so anyone blocked in spawnAndWait is woken
     // rather than left awaiting a gate nothing will ever resolve.
     this.dequeue(() => true);
     const sessions = [...this.agents.values()].map(record => record.session);
     this.agents.clear();
+    this.executionBindings.clear();
+    this.sessionBindings.clear();
     this.startups.clear();
     if (pi) {
       // Prune any orphaned git worktrees (crash recovery). Detached: dispose runs

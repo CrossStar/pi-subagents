@@ -144,6 +144,7 @@ describe("status note reaches the parent through the real handlers", () => {
   });
 
   it("hides nested records from top-level tools, registry, transcripts, and lifecycle", async () => {
+    vi.mocked(runAgent).mockClear();
     vi.mocked(runAgent).mockResolvedValue({
       responseText: "nested result",
       session: { dispose: vi.fn() } as any,

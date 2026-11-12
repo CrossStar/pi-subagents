@@ -26,6 +26,7 @@ import { runInChildSessionContext } from "./child-context.js";
 import { buildParentContext, extractText } from "./context.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
 import { detectEnv } from "./env.js";
+import { assertExecutionCapabilities, createLocalExecutionBackend, EXECUTION_PROVENANCE, type ExecutionBackendBinding, isLocalExecutionBackend, ownExecutionResources, prepareExecutionBackend } from "./execution-backend.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { createNestedSubagentTools, getMaxSubagentDepth, type NestedAgentManager } from "./nested-tools.js";
 import { buildAgentPrompt, inheritableParentPrompt, type PromptExtras } from "./prompts.js";
@@ -498,6 +499,7 @@ export interface ToolActivity {
 }
 
 export interface RunOptions {
+  executionBackend?: ExecutionBackendBinding;
   /** ExtensionAPI instance — used for pi.exec() instead of execSync. */
   pi: ExtensionAPI;
   /** Manager-assigned id; suffixes session name to disambiguate parallel spawns (e.g. `Explore#a1b2c3d4`). */
@@ -807,12 +809,22 @@ export async function runAgent(
   const agentConfig = getAgentConfig(type);
 
   // Resolve working directory: worktree override > parent cwd
-  const effectiveCwd = options.cwd ?? ctx.cwd;
+  const binding = options.executionBackend ?? createLocalExecutionBackend(options.cwd ?? ctx.cwd);
+  const backend = isLocalExecutionBackend(binding) ? undefined : binding;
+  const effectiveIsolation = agentConfig?.isolated ?? options.isolated;
+  assertExecutionCapabilities(binding, {
+    memory: !!agentConfig?.memory,
+    nesting: !effectiveIsolation && !!agentConfig?.allowedSubagents,
+    extensions: !effectiveIsolation && !!(agentConfig?.extSelectors?.length || agentConfig?.mcpToolPatterns?.length || Array.isArray(config.extensions)),
+    skills: !effectiveIsolation && Array.isArray(config.skills),
+    worktree: options.worktreeBase !== undefined,
+  });
+  const effectiveCwd = binding.cwd;
   // Filesystem work happens in effectiveCwd; config discovery in configCwd.
   // They differ only for SpawnOptions.cwd spawns (config stays with the parent).
-  const configCwd = options.configCwd ?? effectiveCwd;
+  const configCwd = options.configCwd ?? (backend ? ctx.cwd : effectiveCwd);
 
-  const env = await detectEnv(options.pi, effectiveCwd);
+  const env = backend ? { platform: backend.platform, isGitRepo: false, branch: "" } : await detectEnv(options.pi, effectiveCwd);
 
   // Get parent system prompt for append-mode agents, without the sections the
   // child session renders itself (skills, cwd, extension sections).
@@ -827,11 +839,11 @@ export async function runAgent(
   // and the agent file's value must hold on every path.
   const isolated = agentConfig?.isolated ?? options.isolated;
   // Resolve extensions/skills: isolated overrides to false
-  const extensions = isolated ? false : config.extensions;
+  const extensions = isolated || backend ? false : config.extensions;
   // Nulling excludes under isolated also suppresses the orphaned-exclude warning —
   // isolation is an intentional override, not a misconfiguration.
   const excludeExtensions = isolated ? undefined : config.excludeExtensions;
-  const skills = isolated ? false : config.skills;
+  const skills = isolated || backend ? false : config.skills;
 
   // Skill preloading: when skills is string[], preload their content into prompt
   if (Array.isArray(skills)) {
@@ -1230,7 +1242,8 @@ export async function runAgent(
     sessionExcludeTools = [...denyTools];
   }
 
-  const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd);
+  const storageCwd = backend ? configCwd : effectiveCwd;
+  const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, storageCwd);
   const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
   // Frontmatter wins when it says anything; otherwise the project default,
   // which `rememberAgents` supplies for top-level agents only. Same precedence
@@ -1243,7 +1256,7 @@ export async function runAgent(
     // apply. `sessionDir` still matters for a later /new or /branch off it.
     ? reopenSession(options.resumeSessionFile, parentSessionFile, configuredSessionDir ?? defaultSessionDir)
     : persistSession
-      ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir, {
+      ? SessionManager.create(storageCwd, configuredSessionDir ?? defaultSessionDir, {
           // Optional metadata — it only nests the subagent under its spawner in
           // `/resume`. Until `rememberAgents` this ran solely for the rare
           // `persist_session: true` agent; now it runs for every spawn, so a
@@ -1251,7 +1264,11 @@ export async function runAgent(
           // still persist rather than take the whole spawn down.
           parentSession: parentSessionFile,
         })
-      : SessionManager.inMemory(effectiveCwd);
+      : SessionManager.inMemory(storageCwd);
+
+  // Provenance is inert custom metadata, never a model message or a binding.
+  // Write before the session can be handed off or begin a turn.
+  sessionManager.appendCustomEntry(EXECUTION_PROVENANCE, backend ? "external" : "local");
 
   // Pi 0.80.8 replaced createAgentSession's modelRegistry option with
   // modelRuntime, but ExtensionContext still exposes only the registry facade.
@@ -1261,7 +1278,7 @@ export async function runAgent(
     modelRegistry: ExtensionContext["modelRegistry"];
     modelRuntime?: unknown;
   } = {
-    cwd: effectiveCwd,
+    cwd: storageCwd,
     agentDir,
     sessionManager,
     settingsManager: sessionSettingsManager,
@@ -1283,7 +1300,32 @@ export async function runAgent(
     sessionOpts.thinkingLevel = thinkingLevel;
   }
 
-  const { session } = await runInChildSessionContext(() => createAgentSession(sessionOpts));
+  const resources = await prepareExecutionBackend(binding,
+    toolNames.filter(name => BUILTIN_TOOL_NAMES.includes(name) && !disallowedSet?.has(name)), options.signal);
+  if (backend) {
+    sessionOpts.noTools = "builtin";
+    sessionOpts.customTools = [...resources.tools, ...nestedTools, ...structuredTools];
+  }
+  let session: AgentSession;
+  try {
+    ({ session } = await runInChildSessionContext(() => createAgentSession(sessionOpts)));
+  } catch (error) {
+    try { await resources.dispose(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Session creation and backend cleanup failed");
+    }
+    throw error;
+  }
+  if (resources) {
+    ownExecutionResources(session, resources);
+    const dispose = session.dispose.bind(session);
+    session.dispose = () => {
+      try { dispose(); } finally {
+        void resources.dispose().catch(error => options.onToolActivity?.({ type: "end", toolName: `backend-cleanup-error:${String(error)}` }));
+      }
+    };
+  }
+  try {
+  options.signal?.throwIfAborted();
 
   const baseSessionName = agentConfig?.name ?? type;
   session.setSessionName(
@@ -1323,6 +1365,13 @@ export async function runAgent(
   }
 
   options.onSessionCreated?.(session);
+  } catch (error) {
+    session.dispose();
+    try { await resources.dispose(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Session initialization and backend cleanup failed");
+    }
+    throw error;
+  }
 
   const run = observeRun(session, { ...options, maxTurns: resolveEffectiveMaxTurns(type, options.maxTurns) });
 
@@ -1360,6 +1409,14 @@ export async function runAgent(
       structuredRetried = true;
       await session.prompt(structuredRetryPrompt(structuredCapture));
     }
+  } catch (error) {
+    if (!options.onSessionCreated) {
+      session.dispose();
+      try { await resources.dispose(); } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Agent run and backend cleanup failed");
+      }
+    }
+    throw error;
   } finally {
     run.unsubscribe();
     collector.unsubscribe();

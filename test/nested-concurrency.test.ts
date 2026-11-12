@@ -44,14 +44,20 @@ const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 const top = (manager: AgentManager, prompt: string) =>
   manager.spawn(mockPi, mockCtx, "general-purpose", prompt, { description: prompt, isBackground: true });
 
-const nested = (manager: AgentManager, prompt: string, options: any = {}) =>
-  manager.spawn(mockPi, mockCtx, "general-purpose", prompt, {
+const nested = (manager: AgentManager, prompt: string, options: any = {}) => {
+  if (!manager.getRecord("parent")) {
+    manager.spawn(mockPi, mockCtx, "general-purpose", "fixture-parent", {
+      description: "fixture-parent", isBackground: true, workflowId: "fixture", reclaim: { id: "parent" },
+    });
+  }
+  return manager.spawn(mockPi, mockCtx, "general-purpose", prompt, {
     description: prompt,
     isBackground: true,
     parentAgentId: "parent",
     depth: 2,
     ...options,
   });
+};
 
 const LIMIT_MESSAGE = /Concurrent nested subagent limit reached\. You can run 2 nested subagents at once\. Do not retry\./;
 
@@ -75,7 +81,7 @@ describe("maxConcurrentNested", () => {
     nested(manager, "child-2");
 
     expect(() => nested(manager, "child-3")).toThrow(LIMIT_MESSAGE);
-    expect(manager.listAgents().map(a => a.description).sort()).toEqual(["child-1", "child-2"]);
+    expect(manager.listAgents().filter(a => a.id !== "parent").map(a => a.description).sort()).toEqual(["child-1", "child-2"]);
   });
 
   it("does not count top-level agents", () => {
@@ -162,6 +168,6 @@ describe("maxConcurrentNested", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(LIMIT_MESSAGE);
-    expect(manager.listAgents()).toHaveLength(2);
+    expect(manager.listAgents().filter(a => a.id !== "parent")).toHaveLength(2);
   });
 });

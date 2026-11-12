@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -226,6 +226,8 @@ describe("AgentManager — nested runtime propagation", () => {
   it("stores nesting metadata and passes the owning manager/runtime to runAgent", async () => {
     resolvedRun();
     manager = new AgentManager();
+    const parent = manager.spawn(mockPi, mockCtx, "general-purpose", "parent", { description: "parent", reclaim: { id: "parent-1" } });
+    await manager.getRecord(parent)!.promise;
     const id = manager.spawn(mockPi, mockCtx, "scout", "nested", {
       description: "nested",
       isBackground: true,
@@ -263,6 +265,8 @@ describe("AgentManager — nested runtime propagation", () => {
     // can ever reach — the runner needs the fact to decline.
     resolvedRun();
     manager = new AgentManager();
+    const parent = manager.spawn(mockPi, mockCtx, "general-purpose", "parent", { description: "parent", reclaim: { id: "parent-1" } });
+    await manager.getRecord(parent)!.promise;
     const child = manager.spawn(mockPi, mockCtx, "scout", "child", {
       description: "child", isBackground: true, depth: 2, parentAgentId: "parent-1",
     });
@@ -348,6 +352,7 @@ describe("AgentManager — nested runtime propagation", () => {
   });
 
   it("gives a workflow's child no handle, so nothing can address it", () => {
+    manager = new AgentManager();
     // Same reasoning as a nested child: it is filtered out of every top-level
     // surface, so a handle would name something unreachable and consume a name
     // a visible agent could have taken.
@@ -969,11 +974,16 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
     vi.mocked(runAgent).mockResolvedValue({ responseText: "done", session: mockSession(), aborted: false, steered: false } as never);
 
     manager = new AgentManager();
-    await manager.spawnAndWait(mockPi, mockCtx, "general-purpose", "continue", {
-      description: "reopen",
-      isolation: "worktree",
-      resumeSessionFile: "/sessions/child.jsonl",
-    });
+    const directory = mkdtempSync(join(tmpdir(), "manager-reopen-"));
+    const file = join(directory, "child.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: "child", timestamp: new Date().toISOString(), cwd: "/tmp" }) + "\n");
+    try {
+      await manager.spawnAndWait(mockPi, mockCtx, "general-purpose", "continue", {
+        description: "reopen",
+        isolation: "worktree",
+        resumeSessionFile: file,
+      });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
 
     expect(createWorktree).not.toHaveBeenCalled();
     expect(vi.mocked(runAgent).mock.lastCall![3].cwd).toBeUndefined();
@@ -2547,10 +2557,11 @@ describe("AgentManager — names as additive aliases", () => {
     // one addressable through a boundary only its owner may cross.
     resolvedRun();
     manager = new AgentManager();
+    const parentId = manager.spawn(mockPi, mockCtx, "general-purpose", "parent", { description: "parent" });
     const id = manager.spawn(mockPi, mockCtx, "Explore", "go", {
       description: "go",
       name: "child",
-      parentAgentId: "parent-1",
+      parentAgentId: parentId,
       isBackground: true,
     });
 

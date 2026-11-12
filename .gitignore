@@ -38,6 +38,13 @@ test/perf/.results/
 .gitnexus
 .pi/subagents.json
 
-# Pi internal files
+# Pi internal files (keep .pi/agents and shared configuration trackable)
+.pi/tasks/
+.pi/sessions/
+.pi/cache/
+.pi/auth.json
+.env
+.env.*
+!.env.example
 progress.md
 CLAUDE.md

@@ -272,9 +272,10 @@ describe("AgentManager — tombstones outliving the GC", () => {
   it("ignores a reclaim on a nested child, which has no name to hold", async () => {
     manager = new AgentManager();
     vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+    const parentId = manager.spawn(mockPi, mockCtx, "Explore", "parent", { description: "parent", isBackground: true });
     const id = manager.spawn(mockPi, mockCtx, "Explore", "child", {
       description: "child",
-      parentAgentId: "parent-id",
+      parentAgentId: parentId,
       reclaim: { handle: "explore", alias: "auth-audit" },
     } as any);
 

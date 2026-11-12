@@ -33,3 +33,9 @@ vitest.config.ts
 .github/
 biome.json
 coverage/
+
+# Local credentials and caches
+.env
+.env.*
+!.env.example
+*.tsbuildinfo

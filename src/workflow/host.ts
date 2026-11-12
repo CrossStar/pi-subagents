@@ -37,6 +37,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { AgentManager } from "../agent-manager.js";
 import { reopenTarget, worktreeLost } from "../agent-record-entry.js";
 import { getAgentConfig, resolveSpawnType } from "../agent-types.js";
+import { admitExecutionBackend, assertExecutionCapabilities, EXECUTION_BINDING, type ExecutionBackendBinding } from "../execution-backend.js";
 import { resolveModel } from "../model-resolver.js";
 import { checkModelScope } from "../model-scope.js";
 import type { AgentRecord, ThinkingLevel } from "../types.js";
@@ -52,6 +53,7 @@ import { resolveWorkflowSource } from "./saved.js";
 export const DEFAULT_GATE_TIMEOUT_MS = 10 * 60_000;
 
 export interface WorkflowHostOptions {
+  [EXECUTION_BINDING]?: ExecutionBackendBinding;
   pi: ExtensionAPI;
   ctx: ExtensionContext;
   manager: AgentManager;
@@ -159,7 +161,9 @@ const GATE_SHELL: readonly [string, string] =
   process.platform === "win32" ? ["cmd", "/c"] : ["sh", "-c"];
 
 export function createWorkflowHost(deps: WorkflowHostOptions): WorkflowHost {
-  const { pi, ctx, manager } = deps;
+  const { pi, manager } = deps;
+  const ctx: ExtensionContext = Object.assign(Object.create(Object.getPrototypeOf(deps.ctx)), deps.ctx, { cwd: deps.ctx.cwd });
+  const binding = deps[EXECUTION_BINDING] ?? admitExecutionBackend(pi, ctx.cwd);
   /** Runtime agent id → the manager record it spawned. Never pruned mid-run. */
   const records = new Map<string, string>();
   /**
@@ -192,6 +196,7 @@ export function createWorkflowHost(deps: WorkflowHostOptions): WorkflowHost {
    * decided from one behaviour, whichever route the command took.
    */
   async function executeGate(command: string, cwd: string): Promise<WorkflowGateResult> {
+    assertExecutionCapabilities(binding, { shellGates: true });
     const result = await pi.exec(GATE_SHELL[0], [GATE_SHELL[1], command], {
       cwd,
       timeout: deps.gateTimeoutMs ?? DEFAULT_GATE_TIMEOUT_MS,
@@ -254,6 +259,7 @@ export function createWorkflowHost(deps: WorkflowHostOptions): WorkflowHost {
 
   return {
     async spawnAgent(request) {
+      assertExecutionCapabilities(binding, { shellGates: request.gate !== undefined, worktree: request.isolation === "worktree" });
       const dispatch = resolveSpawnType(request.agentType);
       if (!dispatch.ok) return { ok: false, error: dispatch.message };
 
@@ -357,6 +363,7 @@ export function createWorkflowHost(deps: WorkflowHostOptions): WorkflowHost {
           dispatch.type,
           request.prompt,
           {
+            [EXECUTION_BINDING]: binding,
             description: request.label,
             // Same as the Agent tool: `isolated` comes off the agent definition.
             // Left out, a hermetic agent's script-spawned children loaded every
