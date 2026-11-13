@@ -162,7 +162,9 @@ export function createNestedSubagentTools(context: NestedToolContext): ToolDefin
     label: "Agent",
     description:
       "Launch a child-safe nested subagent for bounded delegated work. " +
-      "Only use agent types allowed by this parent agent; nesting is depth-limited.",
+      "Only use agent types allowed by this parent agent; nesting is depth-limited. " +
+      "Use it for independent subtasks that can run in parallel or whose raw results would flood your context; " +
+      "do small or known-target work directly. Never start pi processes (`pi`, `pi -c`, `pi -p`) from bash instead.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Self-contained task for the nested agent." }),
       description: Type.String({ description: "Short 3-5 word task description." }),

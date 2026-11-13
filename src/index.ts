@@ -1570,6 +1570,8 @@ Notes:
 - Parallel work: one message, multiple Agent calls — they run concurrently.
 - Subagents run in the background by default; you'll be notified when one completes. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Never fabricate or predict a pending agent's results — if the user asks before the notification arrives, say it's still running.
 - The result is not shown to the user — summarize it for them. Verify an agent's claimed code changes before reporting work done.
+- Delegate as soon as work fits: broad search, parallel subtasks, a matching type.
+- Delegate only through Agent; never run \`pi\`/\`pi -c\`/\`pi -p\` via bash unasked.
 - resume continues a previous agent by ID; steer_subagent messages a running one.${isolationCompactGuideline}`;
 
   const fullAgentToolDescription = `Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.
@@ -1580,6 +1582,14 @@ ${buildTypeListText()}
 Custom agents can be defined in .pi/agents/<name>.md (project) or ${getAgentDir()}/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.
 
 When using the Agent tool, specify a subagent_type parameter to select which agent type to use.
+
+## When to use
+
+Start an agent as soon as you recognize work that fits — not after you have already done the exploration yourself:
+- Open-ended search or research across many files or directories, where the raw results would flood your context.
+- Two or more independent subtasks that can run at the same time.
+- A task that matches an available agent type's description.
+- Long-running work the user does not need to wait on.
 
 ## When not to use
 
@@ -1598,6 +1608,7 @@ If the target is already known, use a direct tool — \`read\` for a known path,
 - Use steer_subagent to send mid-run messages to a running background agent.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
 - If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
+- **Delegate only through this tool.** Never start pi itself from bash or another tool — \`pi\`, \`pi -c\` / \`pi --continue\`, \`pi -p\`, \`pi --mode json\` or a wrapper that runs one — to get another agent. Such a process is invisible to the widget and fleet, cannot be steered, stopped or collected, and \`pi -c\` may continue this very session. Start a pi process only when the user explicitly asks for one.
 - Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
 - Use thinking to control extended thinking level.
 - Use inherit_context if the agent needs the parent conversation history.${isolationGuideline}${scheduleGuideline}
@@ -1676,6 +1687,8 @@ Terse command-style prompts produce shallow, generic work.
       // Names Explore only when it can be spawned, as Claude Code does (#330).
       // Read at registration, like the type list in the description.
       `For broad codebase exploration or research, spawn Agent with an appropriate subagent_type${getAvailableTypes().includes("Explore") ? " (e.g. Explore)" : ""}. Otherwise use direct tools (read, grep, find) when the target is already known.`,
+      "Start a subagent as soon as you recognize fitting work — broad multi-file search, independent subtasks that can run in parallel, or a task matching an agent type — rather than doing the exploration yourself first and delegating afterwards.",
+      "Delegate only through Agent. Never start pi (`pi`, `pi -c`, `pi --continue`, `pi -p`, `pi --mode json`) from bash or other tools to get another agent, unless the user explicitly asks for a pi process.",
       "When an agent runs in the background, you will be notified on completion — do not poll or sleep waiting for it. Continue with other work instead.",
       "Trust but verify: an agent's summary describes intent, not outcome. When an agent writes or edits code, check the actual changes before reporting work as done.",
     ],

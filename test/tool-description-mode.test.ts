@@ -135,9 +135,27 @@ describe("toolDescriptionMode", () => {
       'isolation: "worktree"',
       ".pi/agents/",
       "self-contained",
+      "as soon as",
+      "pi -c",
     ]) {
       expect(desc).toContain(contract);
     }
+  });
+
+  // Both modes tell the orchestrator when to start delegating and that a pi
+  // process launched from bash is not a substitute for the Agent tool.
+  it("says when to delegate and forbids launching pi processes, in every built-in mode", () => {
+    const full = setup().get("Agent");
+    expect(full.description).toContain("## When to use");
+    expect(full.description).toContain("Delegate only through this tool");
+    expect(full.description).toContain("`pi -c` / `pi --continue`");
+    const guidelines = full.promptGuidelines as string[];
+    expect(guidelines.some((g) => g.startsWith("Start a subagent as soon as"))).toBe(true);
+    expect(guidelines.some((g) => g.startsWith("Delegate only through Agent") && g.includes("`pi -c`"))).toBe(true);
+
+    const compact: string = setup({ toolDescriptionMode: "compact" }).get("Agent").description;
+    expect(compact).toContain("Delegate only through Agent");
+    expect(compact).toContain("`pi -c`");
   });
 
   // The compact test above pins the prose alone, which is right for compact —

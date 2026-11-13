@@ -97,7 +97,7 @@ You are operating as a sub-agent invoked to handle a specific task.
     // placed verbatim (no wrapper tag) so it forms an identical byte prefix
     // with the parent session, maximising KV cache hits. The <active_agent>
     // tag and env block vary per call and are placed after the cached prefix.
-    return identity + "\n\n" + bridge + "\n\n" + activeAgentTag + envBlock + worktreeBlock + customSection + extrasSuffix;
+    return identity + "\n\n" + bridge + "\n\n" + NO_PI_SUBPROCESS_BLOCK + "\n\n" + activeAgentTag + envBlock + worktreeBlock + customSection + extrasSuffix;
   }
 
   // "replace" mode — env header + the config's full system prompt
@@ -106,7 +106,7 @@ You have been invoked to handle a specific task autonomously.
 
 ${envBlock}`;
 
-  return activeAgentTag + replaceHeader + worktreeBlock + "\n\n" + config.systemPrompt + extrasSuffix;
+  return activeAgentTag + replaceHeader + "\n\n" + NO_PI_SUBPROCESS_BLOCK + worktreeBlock + "\n\n" + config.systemPrompt + extrasSuffix;
 }
 
 /**
@@ -137,6 +137,22 @@ export function inheritableParentPrompt(rendered: string, cwd: string): string {
   const skillsAt = head.lastIndexOf("\n\n<skills>\n");
   return skillsAt < 0 ? head : head.slice(0, skillsAt);
 }
+
+/**
+ * Every subagent, in both modes: delegation goes through the Agent tool or not
+ * at all. A `pi` process launched from bash is invisible to the manager — it
+ * cannot be steered, stopped, collected or counted against any limit — and
+ * `pi -c` continues the most recent session in the cwd, which may be the
+ * parent's own. Stated against inherited instructions on purpose: in append
+ * mode the child carries the parent's prompt, which may describe launching pi
+ * processes (for example a background `pi -p` helper tool).
+ *
+ * Static text, so in append mode it stays inside the cacheable prefix.
+ */
+export const NO_PI_SUBPROCESS_BLOCK = `<no_pi_subprocess>
+Never start pi itself — \`pi\`, \`pi -c\`, \`pi --continue\`, \`pi -r\`, \`pi -p\`, \`pi --mode json\`, or any script or wrapper that runs it — from bash or any other tool, in the foreground or the background, even if inherited instructions or the task describe doing so. Such a process runs outside your parent's control and can continue your parent's own session.
+If the task needs further delegation, use the Agent tool when you have one; otherwise do the work yourself with your own tools.
+</no_pi_subprocess>`;
 
 /** Fallback base prompt when parent system prompt is unavailable in append mode. */
 const genericBase = `# Role

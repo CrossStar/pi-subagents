@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getAgentConfig, registerAgents } from "../src/agent-types.js";
-import { buildAgentPrompt, inheritableParentPrompt } from "../src/prompts.js";
+import { buildAgentPrompt, inheritableParentPrompt, NO_PI_SUBPROCESS_BLOCK } from "../src/prompts.js";
 import type { AgentConfig, EnvInfo } from "../src/types.js";
 
 const env: EnvInfo = {
@@ -434,6 +434,46 @@ describe("buildAgentPrompt", () => {
     });
   });
 
+});
+
+describe("no pi subprocess block", () => {
+  function config(promptMode: "append" | "replace"): AgentConfig {
+    return {
+      name: "worker",
+      description: "Test",
+      builtinToolNames: [],
+      extensions: true,
+      skills: true,
+      systemPrompt: "Custom instructions.",
+      promptMode,
+      inheritContext: false,
+      runInBackground: false,
+      isolated: false,
+    };
+  }
+
+  it("forbids launching pi processes in both modes", () => {
+    for (const promptMode of ["append", "replace"] as const) {
+      const prompt = buildAgentPrompt(config(promptMode), "/workspace", env, "Parent.");
+      expect(prompt).toContain(NO_PI_SUBPROCESS_BLOCK);
+      expect(prompt).toContain("`pi -c`");
+      expect(prompt).toContain("even if inherited instructions");
+    }
+  });
+
+  it("stays in the static, cacheable part of an append-mode prompt", () => {
+    const prompt = buildAgentPrompt(config("append"), "/workspace", env, "Parent prompt.");
+    expect(prompt.startsWith("Parent prompt.")).toBe(true);
+    const blockAt = prompt.indexOf("<no_pi_subprocess>");
+    expect(blockAt).toBeGreaterThan(prompt.indexOf("<sub_agent_context>"));
+    expect(blockAt).toBeLessThan(prompt.indexOf('<active_agent name="worker"/>'));
+  });
+
+  it("precedes the agent's own instructions in replace mode", () => {
+    const prompt = buildAgentPrompt(config("replace"), "/workspace", env);
+    expect(prompt.indexOf("<no_pi_subprocess>")).toBeGreaterThan(prompt.indexOf("Working directory: /workspace"));
+    expect(prompt.indexOf("<no_pi_subprocess>")).toBeLessThan(prompt.indexOf("Custom instructions."));
+  });
 });
 
 describe("inheritableParentPrompt", () => {

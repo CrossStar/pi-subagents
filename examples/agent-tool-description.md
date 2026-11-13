@@ -7,6 +7,14 @@ Custom agents can be defined in .pi/agents/<name>.md (project) or {{agentDir}}/a
 
 When using the Agent tool, specify a subagent_type parameter to select which agent type to use.
 
+## When to use
+
+Start an agent as soon as you recognize work that fits — not after you have already done the exploration yourself:
+- Open-ended search or research across many files or directories, where the raw results would flood your context.
+- Two or more independent subtasks that can run at the same time.
+- A task that matches an available agent type's description.
+- Long-running work the user does not need to wait on.
+
 ## When not to use
 
 If the target is already known, use a direct tool — `read` for a known path, `grep`/`find` for a specific symbol or string. Reserve this tool for open-ended questions that span the codebase, or tasks that match an available agent type.
@@ -24,6 +32,7 @@ If the target is already known, use a direct tool — `read` for a known path, `
 - Use steer_subagent to send mid-run messages to a running background agent.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
 - If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
+- **Delegate only through this tool.** Never start pi itself from bash or another tool — `pi`, `pi -c` / `pi --continue`, `pi -p`, `pi --mode json` or a wrapper that runs one — to get another agent. Such a process is invisible to the widget and fleet, cannot be steered, stopped or collected, and `pi -c` may continue this very session. Start a pi process only when the user explicitly asks for one.
 - Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
 - Use thinking to control extended thinking level.
 - Use inherit_context if the agent needs the parent conversation history.{{isolationGuideline}}{{scheduleGuideline}}
