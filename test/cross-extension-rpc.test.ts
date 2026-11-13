@@ -233,8 +233,7 @@ describe("cross-extension RPC", () => {
       expect(manager.abort).not.toHaveBeenCalled();
     });
 
-    // A nested child and a workflow's agent both have an owner that is waiting
-    // on them, so an id that leaked to another extension must not let it abort
+    // A nested child has an owner that is waiting on it, so an id that leaked to another extension must not let it abort
     // one out from under that owner.
     it("refuses to stop another agent's nested child", async () => {
       (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue({ parentAgentId: "agent-1" });
@@ -246,22 +245,7 @@ describe("cross-extension RPC", () => {
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
       expect(reply).toHaveBeenCalledWith({
         success: false,
-        error: "Agent is owned by another agent or workflow",
-      });
-      expect(manager.abort).not.toHaveBeenCalled();
-    });
-
-    it("refuses to stop a workflow's agent", async () => {
-      (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue({ workflowId: "wf-1" });
-      registerRpcHandlers(deps);
-      const reply = vi.fn();
-      events.on("subagents:rpc:stop:reply:req-st7", reply);
-      events.emit("subagents:rpc:stop", { requestId: "req-st7", agentId: "agent-wf" });
-
-      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({
-        success: false,
-        error: "Agent is owned by another agent or workflow",
+        error: "Agent is owned by another agent",
       });
       expect(manager.abort).not.toHaveBeenCalled();
     });
@@ -356,17 +340,17 @@ describe("cross-extension RPC", () => {
       expect(manager.steer).not.toHaveBeenCalled();
     });
 
-    // Same ownership stance as stop: an agent another agent or a workflow is
-    // waiting on is not this RPC's to redirect.
-    it("refuses to steer another agent's nested child or a workflow's agent", async () => {
-      (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue({ workflowId: "wf-1" });
+    // Same ownership stance as stop: an agent another agent is waiting on is
+    // not this RPC's to redirect.
+    it("refuses to steer another agent's nested child", async () => {
+      (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue({ parentAgentId: "agent-1" });
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:steer:reply:req-m3", reply);
       events.emit("subagents:rpc:steer", { requestId: "req-m3", agentId: "agent-42", message: "x" });
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({ success: false, error: "Agent is owned by another agent or workflow" });
+      expect(reply).toHaveBeenCalledWith({ success: false, error: "Agent is owned by another agent" });
       expect(manager.steer).not.toHaveBeenCalled();
     });
 

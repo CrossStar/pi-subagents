@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **⚠️ Breaking: the `SubagentWorkflow` tool and all scripted-workflow support are removed.** Saved workflow scripts no longer run; orchestrate with `Agent` calls instead. Remove `workflowsEnabled` and `packageWorkflows` from `subagents.json` (they are now ignored).
+
+### Removed
+- **BREAKING: scripted workflows are removed.** The `SubagentWorkflow` tool, `--subagents-workflow-file`, `/agents → Workflows`, FleetView workflow rows, the `workflowsEnabled` and `packageWorkflows` settings, `pi.subagents.workflows` package declarations and `docs/workflows.md` are gone. The workflow-only internals went with them: the `StructuredOutput` child tool (and the `structuredOutput` spawn/RPC option), `onBeforeWorktreeCleanup`, and the `workflowId` field on records and `subagents:usage` events.
+
 ## [0.24.0] - 2026-11-12
 
 > **⚠️ Behavior change — nested spawns are refused once 10 nested subagents are running** ([#427](https://github.com/tintinweb/pi-subagents/pull/427)). Only agents with `allowed_subagents` are affected; the parent gets a tool error and does the work itself. To restore the unbounded behavior, set `/agents → Settings → Max nested concurrency` (`maxConcurrentNested`) to `0`.

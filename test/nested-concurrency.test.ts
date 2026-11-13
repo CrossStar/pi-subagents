@@ -47,7 +47,7 @@ const top = (manager: AgentManager, prompt: string) =>
 const nested = (manager: AgentManager, prompt: string, options: any = {}) => {
   if (!manager.getRecord("parent")) {
     manager.spawn(mockPi, mockCtx, "general-purpose", "fixture-parent", {
-      description: "fixture-parent", isBackground: true, workflowId: "fixture", reclaim: { id: "parent" },
+      description: "fixture-parent", isBackground: true, reclaim: { id: "parent" },
     });
   }
   return manager.spawn(mockPi, mockCtx, "general-purpose", prompt, {
@@ -103,21 +103,6 @@ describe("maxConcurrentNested", () => {
 
     const id = top(manager, "a");
     expect(manager.getRecord(id)?.status).toBe("running");
-  });
-
-  it("neither counts nor refuses a workflow's agents, which have their own cap", () => {
-    controllableRuns();
-    manager = new AgentManager(undefined, 10);
-    manager.setMaxConcurrentNested(2);
-    // Workflow agents can carry a parentAgentId; the workflowId is what exempts them.
-    nested(manager, "wf-1", { workflowId: "wf" });
-    nested(manager, "wf-2", { workflowId: "wf" });
-    nested(manager, "wf-3", { workflowId: "wf" });
-
-    expect(() => nested(manager, "child-1")).not.toThrow();
-    expect(() => nested(manager, "child-2")).not.toThrow();
-    // Nested children are at the limit, and a workflow agent still starts.
-    expect(() => nested(manager, "wf-4", { workflowId: "wf" })).not.toThrow();
   });
 
   it("is unlimited at 0", () => {

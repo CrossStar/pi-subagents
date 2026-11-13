@@ -192,12 +192,12 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({});
   });
 
-  it("round-trips packageAgents and packageWorkflows in all three forms", () => {
-    saveSettings({ packageAgents: false, packageWorkflows: false }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ packageAgents: false, packageWorkflows: false });
+  it("round-trips packageAgents in all three forms", () => {
+    saveSettings({ packageAgents: false }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ packageAgents: false });
 
-    saveSettings({ packageAgents: true, packageWorkflows: true }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ packageAgents: true, packageWorkflows: true });
+    saveSettings({ packageAgents: true }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ packageAgents: true });
 
     saveSettings({ packageAgents: ["my-subagents", "@acme/tools"] }, projectDir);
     expect(loadSettings(projectDir)).toEqual({ packageAgents: ["my-subagents", "@acme/tools"] });
@@ -227,7 +227,7 @@ describe("settings persistence", () => {
   });
 
   it("drops a packageAgents value that is neither a boolean, a string, nor an array", () => {
-    writeProject({ packageWorkflows: { allow: [] } } as any);
+    writeProject({ packageAgents: { allow: [] } } as any);
     expect(loadSettings(projectDir)).toEqual({});
     writeProject({ packageAgents: 7 } as any);
     expect(loadSettings(projectDir)).toEqual({});
@@ -265,16 +265,6 @@ describe("settings persistence", () => {
     saveSettings({ showModel: false }, projectDir);
     expect(loadSettings(projectDir)).toEqual({ showModel: false });
     writeProject({ showModel: "on" } as any);
-    expect(loadSettings(projectDir)).toEqual({});
-  });
-
-  it("round-trips workflowsEnabled; drops non-boolean", () => {
-    saveSettings({ workflowsEnabled: true }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ workflowsEnabled: true });
-    saveSettings({ workflowsEnabled: false }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ workflowsEnabled: false });
-    writeProject({ workflowsEnabled: "on" } as any);
-    // Dropped, not coerced — a truthy string must not switch the feature on.
     expect(loadSettings(projectDir)).toEqual({});
   });
 
@@ -618,7 +608,6 @@ describe("settings persistence", () => {
         setShowCost: vi.fn(),
         setShowModel: vi.fn(),
         setPackageAgents: vi.fn(),
-        setPackageWorkflows: vi.fn(),
       };
     });
 
@@ -647,10 +636,9 @@ describe("settings persistence", () => {
       expect(appliers.setMaxConcurrentNested).not.toHaveBeenCalled();
     });
 
-    it("applies packageAgents and packageWorkflows, including false and an empty list", () => {
-      applySettings({ packageAgents: ["a"], packageWorkflows: false }, appliers);
+    it("applies packageAgents, including false and an empty list", () => {
+      applySettings({ packageAgents: ["a"] }, appliers);
       expect(appliers.setPackageAgents).toHaveBeenCalledWith(["a"]);
-      expect(appliers.setPackageWorkflows).toHaveBeenCalledWith(false);
 
       // `false` and `[]` are real values, so a truthiness check would skip them.
       applySettings({ packageAgents: false }, appliers);
@@ -900,7 +888,6 @@ describe("settings persistence", () => {
         setShowCost: vi.fn(),
         setShowModel: vi.fn(),
         setPackageAgents: vi.fn(),
-        setPackageWorkflows: vi.fn(),
       };
     });
 

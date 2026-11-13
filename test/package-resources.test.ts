@@ -8,12 +8,10 @@ import {
   packageAgentFiles,
   packageAllowed,
   packageNameForPath,
-  packageWorkflowDirs,
   readSubagentManifest,
   resetPackageState,
   resolveDeclaredPaths,
   setPackageAgentsGate,
-  setPackageWorkflowsGate,
   setProjectTrusted,
   unscopedShortName,
 } from "../src/package-resources.js";
@@ -22,8 +20,7 @@ describe("readSubagentManifest", () => {
   const dirs = ["./agents"];
 
   it("reads the nested pi.subagents object form", () => {
-    expect(readSubagentManifest({ pi: { subagents: { agents: dirs, workflows: ["./flows"] } } }))
-      .toEqual({ agents: dirs, workflows: ["./flows"] });
+    expect(readSubagentManifest({ pi: { subagents: { agents: dirs } } })).toEqual({ agents: dirs });
   });
 
   it("reads pi.subagents as an array shorthand for agents", () => {
@@ -142,7 +139,7 @@ describe("resolveDeclaredPaths", () => {
   });
 
   it("returns nothing for an absent declaration", () => {
-    expect(resolveDeclaredPaths(root, undefined, "workflows")).toMatchObject({ dirs: [], files: [] });
+    expect(resolveDeclaredPaths(root, undefined, "agents")).toMatchObject({ dirs: [], files: [] });
   });
 
   it("records a ! entry naming a file inside an included directory", () => {
@@ -233,13 +230,11 @@ describe("discovery through pi's configured packages", () => {
   function makePackage(name: string, manifest: Record<string, unknown>): string {
     const root = join(tmpDir, name);
     mkdirSync(join(root, "agents"), { recursive: true });
-    mkdirSync(join(root, "workflows"), { recursive: true });
     writeFileSync(join(root, "package.json"), JSON.stringify({ name, version: "1.0.0", ...manifest }));
     writeFileSync(
       join(root, "agents", `${name}-agent.md`),
       `---\nname: ${name}-agent\ndescription: from ${name}\n---\nBody.\n`,
     );
-    writeFileSync(join(root, "workflows", "flow.js"), "export const meta = { name: 'flow', description: 'd' }\n");
     return root;
   }
 
@@ -287,10 +282,9 @@ describe("discovery through pi's configured packages", () => {
     expect(listPiPackages(projectDir)).toEqual([]);
   });
 
-  it("reads the workflows declaration into its own root list", () => {
-    const root = makePackage("flows", { pi: { subagents: { workflows: ["./workflows"] } } });
-    installGlobally(root);
-    expect(packageWorkflowDirs(projectDir)).toEqual([join(root, "workflows")]);
+  it("ignores a workflows declaration, which is no longer a resource kind", () => {
+    installGlobally(makePackage("flows", { pi: { subagents: { workflows: ["./workflows"] } } }));
+    expect(listPiPackages(projectDir)).toEqual([]);
     expect(packageAgentDirs(projectDir)).toEqual([]);
   });
 
@@ -329,7 +323,7 @@ describe("discovery through pi's configured packages", () => {
     let b: string;
 
     beforeEach(() => {
-      const decl = { pi: { subagents: { agents: ["./agents"], workflows: ["./workflows"] } } };
+      const decl = { pi: { subagents: { agents: ["./agents"] } } };
       a = makePackage("alpha", decl);
       b = makePackage("beta", decl);
       installGlobally(a, b);
@@ -352,13 +346,6 @@ describe("discovery through pi's configured packages", () => {
     it("admits none for an empty allowlist", () => {
       setPackageAgentsGate([]);
       expect(packageAgentDirs(projectDir)).toEqual([]);
-    });
-
-    it("gates agents and workflows independently", () => {
-      setPackageAgentsGate(false);
-      setPackageWorkflowsGate(true);
-      expect(packageAgentDirs(projectDir)).toEqual([]);
-      expect(packageWorkflowDirs(projectDir)).toEqual([join(a, "workflows"), join(b, "workflows")]);
     });
 
     it("re-scans after the gate changes rather than serving the cached list", () => {
@@ -448,14 +435,6 @@ describe("discovery through pi's configured packages", () => {
       expect(packageNameForPath(join(b, "agents", "beta-agent.md"), projectDir)).toBeUndefined();
     });
 
-    it("consults the gate for the kind it is asked about", () => {
-      const root = makePackage("both", { pi: { subagents: { agents: ["./agents"], workflows: ["./workflows"] } } });
-      installGlobally(root);
-      setPackageAgentsGate(false);
-      setPackageWorkflowsGate(true);
-      expect(packageNameForPath(join(root, "agents", "both-agent.md"), projectDir)).toBeUndefined();
-      expect(packageNameForPath(join(root, "workflows", "flow.js"), projectDir, "workflows")).toBe("both");
-    });
   });
 
   it("hands back a copy, so a caller cannot corrupt the cached root list", () => {

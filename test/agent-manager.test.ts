@@ -324,48 +324,6 @@ describe("AgentManager — nested runtime propagation", () => {
     expect(manager.getRecord(siblingId)?.status).toBe("queued");
   });
 
-  it("starts a workflow's children regardless of the concurrency pool", async () => {
-    // A workflow bounds its own fan-out. Routing its agents through the session
-    // pool as well would let one run fill it and starve everything else — and
-    // the run itself is not in the pool to be drained behind them.
-    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
-    manager = new AgentManager(undefined, 1);
-
-    const holder = manager.spawn(mockPi, mockCtx, "general-purpose", "holder", {
-      description: "holder",
-      isBackground: true,
-    });
-    const childId = manager.spawn(mockPi, mockCtx, "scout", "child", {
-      description: "child",
-      isBackground: true,
-      workflowId: "wf_run1",
-    });
-    // A second top-level background agent still queues — the pool is untouched.
-    const siblingId = manager.spawn(mockPi, mockCtx, "general-purpose", "sibling", {
-      description: "sibling",
-      isBackground: true,
-    });
-
-    expect(manager.getRecord(holder)?.status).toBe("running");
-    expect(manager.getRecord(childId)?.status).toBe("running");
-    expect(manager.getRecord(siblingId)?.status).toBe("queued");
-  });
-
-  it("gives a workflow's child no handle, so nothing can address it", () => {
-    manager = new AgentManager();
-    // Same reasoning as a nested child: it is filtered out of every top-level
-    // surface, so a handle would name something unreachable and consume a name
-    // a visible agent could have taken.
-    const id = manager.spawn(mockPi, mockCtx, "general-purpose", "child", {
-      description: "child",
-      workflowId: "wf_run1",
-    });
-    expect(manager.getRecord(id)?.handle).toBeUndefined();
-
-    const visible = manager.spawn(mockPi, mockCtx, "general-purpose", "mine", { description: "mine" });
-    expect(manager.getRecord(visible)?.handle).toBe("general-purpose");
-  });
-
   it("aborts owned children when the parent settles", async () => {
     let finishParent: ((value: any) => void) | undefined;
     // Children settle on abort, as a real run does when its signal fires.
@@ -1047,35 +1005,6 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
     expect(manager.getRecord(queuedId)!.status).toBe("completed");
   });
 
-  it("keeps a structured payload parseable when the worktree note is appended", async () => {
-    // `record.result` is prose for a reader and picks up a branch note on the
-    // way out. A schema'd payload living in the same field would stop parsing
-    // for every `agent({ schema, isolation: "worktree" })` call.
-    const { createWorktree, cleanupWorktree } = await import("../src/worktree.js");
-    const wt = { path: "/wt/a", branch: "pi-agent-a", baseSha: "abc", workPath: "/wt/a" };
-    vi.mocked(createWorktree).mockResolvedValueOnce(wt as never);
-    vi.mocked(cleanupWorktree).mockReturnValueOnce({ hasChanges: true, branch: "pi-agent-a" } as never);
-    vi.mocked(runAgent).mockResolvedValue({
-      responseText: "I edited two files",
-      session: mockSession(),
-      aborted: false,
-      steered: false,
-      structuredJson: '{"answer":"42"}',
-    } as never);
-
-    manager = new AgentManager();
-    const id = manager.spawn(mockPi, mockCtx, "X", "go", {
-      description: "go", isBackground: true, isolation: "worktree",
-    });
-    await manager.awaitStartup(id);
-    await vi.waitFor(() => expect(manager.getRecord(id)!.status).toBe("completed"));
-
-    const record = manager.getRecord(id)!;
-    expect(JSON.parse(record.structuredJson!)).toEqual({ answer: "42" });
-    // The note still reaches the prose, which is where a human reads it.
-    expect(record.result).toContain("Changes saved to branch");
-  });
-
   it("a stop that lands during the copy discards the worktree instead of running", async () => {
     // Window that did not exist when creation was synchronous: abort() can mark
     // the record stopped while the repo is still being copied.
@@ -1101,134 +1030,6 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
     expect(runAgent).not.toHaveBeenCalled();
     expect(cleanupWorktree).toHaveBeenCalledWith(mockPi, "/tmp", wt, "stopped");
     expect(manager.getRecord(id)!.status).toBe("stopped");
-  });
-});
-
-// The worktree is committed to a branch and deleted inside the settle path, so
-// a caller holding the finished record can no longer see what the child wrote.
-// `onBeforeWorktreeCleanup` is the one window where it still exists — a workflow
-// `gate` runs there, and a gate pointed at the wrong tree is worse than none.
-describe("AgentManager — onBeforeWorktreeCleanup", () => {
-  let manager: AgentManager;
-  const wt = { path: "/wt/copy", branch: "pi-agent-x", baseSha: "abc", workPath: "/wt/copy" };
-
-  /** Records call order across the hook and the (mocked) cleanup. */
-  async function trace() {
-    const { createWorktree, cleanupWorktree } = await import("../src/worktree.js");
-    const order: string[] = [];
-    vi.mocked(createWorktree).mockResolvedValue(wt);
-    vi.mocked(cleanupWorktree).mockReset();
-    vi.mocked(cleanupWorktree).mockImplementation(async () => {
-      order.push("cleanup");
-      return { hasChanges: false };
-    });
-    return { order, cleanupWorktree: vi.mocked(cleanupWorktree) };
-  }
-
-  afterEach(async () => {
-    manager?.dispose();
-    const { createWorktree, cleanupWorktree } = await import("../src/worktree.js");
-    vi.mocked(createWorktree).mockReset();
-    vi.mocked(cleanupWorktree).mockReset();
-    vi.mocked(cleanupWorktree).mockImplementation(async () => ({ hasChanges: false }));
-  });
-
-  it("fires with the worktree path, before the worktree is cleaned up", async () => {
-    const { order } = await trace();
-    resolvedRun();
-    const seen: string[] = [];
-
-    manager = new AgentManager();
-    await manager.spawnAndWait(mockPi, mockCtx, "X", "test", {
-      description: "test",
-      isolation: "worktree",
-      onBeforeWorktreeCleanup: async (path) => {
-        order.push("hook");
-        seen.push(path);
-      },
-    });
-
-    expect(seen).toEqual(["/wt/copy"]);
-    // Order is the whole point: after cleanup the path is a branch, not a tree.
-    expect(order).toEqual(["hook", "cleanup"]);
-  });
-
-  it("cleans up anyway when the hook throws", async () => {
-    const { order } = await trace();
-    resolvedRun();
-
-    manager = new AgentManager();
-    const { record } = await manager.spawnAndWait(mockPi, mockCtx, "X", "test", {
-      description: "test",
-      isolation: "worktree",
-      onBeforeWorktreeCleanup: async () => {
-        order.push("hook");
-        throw new Error("gate blew up");
-      },
-    });
-
-    // A hook that fails must not leak a worktree, and must not fail the agent.
-    expect(order).toEqual(["hook", "cleanup"]);
-    expect(record.status).toBe("completed");
-  });
-
-  it("does not fire on the error path, which still cleans up", async () => {
-    const { order } = await trace();
-    vi.mocked(runAgent).mockRejectedValue(new Error("boom"));
-
-    manager = new AgentManager();
-    const { record } = await manager.spawnAndWait(mockPi, mockCtx, "X", "test", {
-      description: "test",
-      isolation: "worktree",
-      onBeforeWorktreeCleanup: async () => {
-        order.push("hook");
-      },
-    });
-
-    expect(order).toEqual(["cleanup"]);
-    expect(record.status).toBe("error");
-  });
-
-  it("does not fire for a stop that lands while the repo is still being copied", async () => {
-    // That path discards a worktree the child never wrote in, so there is
-    // nothing to inspect and nothing may delay the discard.
-    const { createWorktree } = await import("../src/worktree.js");
-    const { order } = await trace();
-    let releaseCopy!: () => void;
-    vi.mocked(createWorktree).mockImplementationOnce(
-      () => new Promise(resolve => { releaseCopy = () => resolve(wt); }),
-    );
-    resolvedRun();
-
-    manager = new AgentManager();
-    const id = manager.spawn(mockPi, mockCtx, "X", "stopped", {
-      description: "stopped",
-      isBackground: true,
-      isolation: "worktree",
-      onBeforeWorktreeCleanup: async () => {
-        order.push("hook");
-      },
-    });
-    expect(manager.abort(id)).toBe(true);
-    releaseCopy();
-    await manager.awaitStartup(id);
-
-    expect(order).toEqual(["cleanup"]);
-  });
-
-  it("does not fire for an agent that has no worktree", async () => {
-    const { order } = await trace();
-    resolvedRun();
-
-    manager = new AgentManager();
-    await manager.spawnAndWait(mockPi, mockCtx, "X", "test", {
-      description: "test",
-      onBeforeWorktreeCleanup: async () => {
-        order.push("hook");
-      },
-    });
-
-    expect(order).toEqual([]);
   });
 });
 
@@ -1390,23 +1191,6 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
     await manager.getRecord(id)!.promise;
 
     expect(vi.mocked(runAgent).mock.lastCall![3].worktreeBase).toBeUndefined();
-  });
-
-  it("passes `workflow` to the runner exactly when the spawn carries a workflowId", async () => {
-    vi.mocked(runAgent).mockClear();
-    resolvedRun();
-
-    manager = new AgentManager();
-    const owned = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
-      description: "test",
-      workflowId: "wf_abc123",
-    });
-    await manager.getRecord(owned)!.promise;
-    expect(vi.mocked(runAgent).mock.lastCall![3].workflow).toBe(true);
-
-    const plain = manager.spawn(mockPi, mockCtx, "general-purpose", "test", { description: "test" });
-    await manager.getRecord(plain)!.promise;
-    expect(vi.mocked(runAgent).mock.lastCall![3].workflow).toBe(false);
   });
 
   it("relative cwd throws immediately; no orphan record", () => {
@@ -2709,8 +2493,7 @@ describe("AgentManager — effective model and thinking write-back", () => {
 // Frontmatter is authoritative (README "Frontmatter is authoritative"): the
 // agent file's `isolation:` must hold on every spawn path. Only the Agent tool
 // and nested tools resolve it before calling the manager; `@handle` mentions
-// pass none, and RPC spawns forward only their caller's value. Workflow
-// children follow Claude Code instead: only the script's option decides.
+// pass none, and RPC spawns forward only their caller's value.
 describe("AgentManager — the agent file's `isolation` wins over the spawn option", () => {
   let manager: AgentManager;
   const wt = { path: "/wt/a", branch: "pi-agent-a", baseSha: "abc", workPath: "/wt/a" };
@@ -2718,7 +2501,7 @@ describe("AgentManager — the agent file's `isolation` wins over the spawn opti
   function spawnAs(
     fileIsolation: "worktree" | "off" | undefined,
     optionIsolation: "worktree" | undefined,
-    { type = "walled", workflowId }: { type?: string; workflowId?: string } = {},
+    { type = "walled" }: { type?: string } = {},
   ) {
     registerAgents(new Map([["walled", { name: "walled", isolation: fileIsolation } as any]]));
     vi.mocked(createWorktree).mockReset();
@@ -2729,7 +2512,6 @@ describe("AgentManager — the agent file's `isolation` wins over the spawn opti
       description: "go",
       isBackground: true,
       ...(optionIsolation !== undefined ? { isolation: optionIsolation } : {}),
-      ...(workflowId !== undefined ? { workflowId } : {}),
     });
   }
 
@@ -2780,18 +2562,4 @@ describe("AgentManager — the agent file's `isolation` wins over the spawn opti
     expect(createWorktree).toHaveBeenCalledTimes(1);
   });
 
-  // Claude Code's workflow agent() reads only the script's `isolation`.
-  it("a workflow child ignores the file's isolation: worktree when the script omits it", async () => {
-    const id = spawnAs("worktree", undefined, { workflowId: "wf-1" });
-    await manager.awaitStartup(id);
-
-    expect(createWorktree).not.toHaveBeenCalled();
-  });
-
-  it("a workflow child gets the script's isolation: worktree despite the file's isolation: off", async () => {
-    const id = spawnAs("off", "worktree", { workflowId: "wf-1" });
-    await manager.awaitStartup(id);
-
-    expect(createWorktree).toHaveBeenCalledTimes(1);
-  });
 });

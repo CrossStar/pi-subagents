@@ -29,11 +29,11 @@
 <p align="center">
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%E2%89%A5%201.1.0-6f42c1" alt="pi >= 1.1.0 が必要"></a>
   <a href="https://pi.dev/packages/@tintinweb/pi-subagents"><img src="https://img.shields.io/badge/pi.dev-package-5b5bd6" alt="pi.dev パッケージ"></a>
-  <img src="https://img.shields.io/badge/Claude%20Code-compatible%20tools%20%26%20workflows-d97757" alt="Claude Code 互換">
+  <img src="https://img.shields.io/badge/Claude%20Code-compatible%20tools-d97757" alt="Claude Code 互換">
   <a href="https://github.com/tintinweb/pi-subagents/commits/master"><img src="https://img.shields.io/github/last-commit/tintinweb/pi-subagents" alt="最終コミット"></a>
 </p>
 
-<h3 align="center">pi のための Claude Code スタイルのサブエージェントとワークフローオーケストレーション。</h3>
+<h3 align="center">pi のための Claude Code スタイルのサブエージェント。</h3>
 
 <p align="center">
   <a href="#インストール"><b>インストール</b></a> ·
@@ -42,13 +42,12 @@
   <a href="README.md#custom-agents"><b>カスタムエージェント (EN)</b></a> ·
   <a href="README.md#tools"><b>ツール (EN)</b></a> ·
   <a href="README.md#persistent-settings"><b>設定 (EN)</b></a> ·
-  <a href="https://github.com/tintinweb/pi-subagents/blob/master/docs/workflows.md"><b>ワークフロー (EN)</b></a> ·
   <a href="https://github.com/tintinweb/pi-subagents/blob/master/CHANGELOG.md"><b>変更履歴 (EN)</b></a>
 </p>
 
 <p align="center"><code>pi install npm:@tintinweb/pi-subagents</code></p>
 
-**Claude Code スタイルの自律型サブエージェントとワークフローオーケストレーション**を実現する [pi](https://pi.dev) 拡張機能です。独立したセッションで動く専用エージェントを起動でき、各エージェントはそれぞれ独自のツール、システムプロンプト、モデル、思考レベルを持ちます。バックグラウンドで実行する（デフォルト）ことも、完了までブロックすることもできます。実行中にステアリング（指示を送って軌道修正）したり、完了したセッションを再開したり、独自のエージェントタイプを定義したりできます。オーケストレーションをその場の判断に任せるべきでない場合は、決定論的な JavaScript スクリプトを `SubagentWorkflow` ツールに渡します（`agent()`、`parallel()`、`pipeline()`）。Claude Code の `Workflow` ツール向けに書かれたスクリプトは、ここでも変更なしで動きます。
+**Claude Code スタイルの自律型サブエージェント**を実現する [pi](https://pi.dev) 拡張機能です。独立したセッションで動く専用エージェントを起動でき、各エージェントはそれぞれ独自のツール、システムプロンプト、モデル、思考レベルを持ちます。バックグラウンドで実行する（デフォルト）ことも、完了までブロックすることもできます。実行中にステアリング（指示を送って軌道修正）したり、完了したセッションを再開したり、独自のエージェントタイプを定義したりできます。
 
 <img width="600" alt="pi-subagents のスクリーンショット" src="https://github.com/tintinweb/pi-subagents/raw/master/media/screenshot.png" />
 
@@ -66,10 +65,9 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 - **FleetView**：エディターの下に表示される、Claude Code スタイルの操作可能なリストで、`main` と実行中のすべてのサブエージェントが並びます（起動が早い順）。空のプロンプトで `↓`（または `←`）を押すとリストにフォーカスが移り、`↑`/`↓` で選択を移動、`Enter` で選択したエージェントの会話を開き（リアルタイムで自動更新されます）、`Esc` で戻ります。完了したエージェントは少しの間残ってから消えます。ビューアーは完了後も開いたままなので、最終出力を読めます。`/agents → Settings → Fleet view` で切り替えます
 - **会話ビューアー**：`/agents` で任意のエージェントを選ぶと、その会話全体をリアルタイムでスクロール表示するオーバーレイが開きます（新しい内容に自動で追従し、上にスクロールすると一時停止）。pi のフルスクリーンモードでは、枠なしで端末全体を使う、マウス対応の観察画面になります。`Enter` で入力欄を開き、入力して `Enter` で送信すると、実行中のエージェントをその場でステアリングできます（`Esc` または空のまま送信で戻ります）。メッセージはユーザーメッセージとして表示され、エージェントは現在のツール呼び出しを終えた後、その指示に沿って方向を変えます。実行中のフォアグラウンド `Agent` 呼び出しで `b` を押すと、その実行をバックグラウンドに移せます（[フォアグラウンドのエージェントをバックグラウンドに移す](#フォアグラウンドのエージェントをバックグラウンドに移す)を参照）。まだ実行中のエージェントは `x` を押す（確認のためもう一度 `x`）と停止できます。ステアリングと停止はバックグラウンドのエージェントにも使えます。ツール呼び出しは、エージェントのセッションに登録されたレンダラーを通じて、pi 自身のトランスクリプトと同じように表示されます：bash 呼び出しはコマンドと出力、`read` は行番号、`edit` は差分、拡張機能のツールは独自のレンダラーで表示され、レンダラーのないツールは引数と長さ制限付きの出力プレビューにフォールバックします。`ctrl+o`（または `app.tools.expand` に割り当てたキー）で省略されたツール出力を展開します。アシスタントのテキストは Markdown として描画され、`m` で「オフ」「アシスタントのみ」「すべて」の 3 つを切り替えます（[Viewer markdown](README.md#persistent-settings) を参照）
 - **カスタムエージェントタイプ**：`.pi/agents/<name>.md` または `.agents/agents/<name>.md`（プロジェクト）、あるいはグローバルにエージェントを定義します。YAML frontmatter で、システムプロンプト、モデル選択、思考レベル、ツール制限、Claude Code 互換の色付き名前バッジを指定できます
-- **パッケージ同梱のエージェント**：pi パッケージは `package.json` に `"pi": { "subagents": { "agents": ["./agents"] } }` と書くことで、独自のサブエージェント（とワークフロースクリプト）を宣言できます。`pi install` だけでセットアップが完了し、マシンごとやコンテナ起動のたびに `.pi/agents/` へファイルをコピーする必要はありません。読み込むのは pi が実際にインストールしたパッケージだけで（`node_modules` は決して読みません）、パッケージの定義はユーザーが定義したどのエージェントよりも優先度が低く、`/agents` では読み取り専用で表示され、Eject と Disable が使えます。`packageAgents` / `packageWorkflows` で対象を絞り込んだり、無効にしたりできます。**[詳細ガイド](https://github.com/tintinweb/pi-subagents/blob/master/docs/packages.md)**
+- **パッケージ同梱のエージェント**：pi パッケージは `package.json` に `"pi": { "subagents": { "agents": ["./agents"] } }` と書くことで、独自のサブエージェントを宣言できます。`pi install` だけでセットアップが完了し、マシンごとやコンテナ起動のたびに `.pi/agents/` へファイルをコピーする必要はありません。読み込むのは pi が実際にインストールしたパッケージだけで（`node_modules` は決して読みません）、パッケージの定義はユーザーが定義したどのエージェントよりも優先度が低く、`/agents` では読み取り専用で表示され、Eject と Disable が使えます。`packageAgents` で対象を絞り込んだり、無効にしたりできます。**[詳細ガイド](https://github.com/tintinweb/pi-subagents/blob/master/docs/packages.md)**
 - **ネストしたサブエージェント**：デフォルトでは無効で、明示的に有効化して使う委任機能です。`allowed_subagents` を設定したカスタムエージェントは、自身の子エージェントだけを対象とする独自の `Agent`、`get_subagent_result`、`steer_subagent` ツールを持ち、メインセッションからの深さには上限があります（デフォルトは 2）。操作できるのは自分の子エージェントだけで、自分が終了すると子エージェントは停止され、子のトランスクリプトとトークン消費は親に集計されます。この許可リストは権限の境界です。子エージェントは自身のツールで動くため、`tools:` そのものと同じくらい慎重に選んでください
 - **エージェントメンション**：サブエージェントはファーストクラスの存在です。プロンプトで `@explore also check the RPC path` と入力すると、その内容はメインモデルではなくそのエージェントに届き、メインの会話には一切残りません。1 つの構文でライフサイクル全体を扱えます：実行中のエージェントにメッセージを送る、完了したエージェントを再開する、ずっと後になってからディスク上のセッションを開き直す、一度も実行されていなければ起動する。実行中でないエージェントをメンションすると、画面外で複製した会話を通じて起動されるため、Claude Code と同じように文脈を踏まえて書かれたプロンプトと本物の `Agent` ツール呼び出しが得られ、やはりメインの会話には一切残りません。`direct` モードでは、モデルを一切呼ばずに、入力したテキストからその場で起動します。オーケストレーターがエージェントに `name` を付ければ `@auth-audit` のように呼びかけられ、その名前は `steer_subagent`/`get_subagent_result` でも使えます。`@` を入力すると、pi のファイル補完に加えて、実行中のエージェント、再開可能なエージェント、起動可能なタイプが補完候補に表示されます。`@main` を付けると、テキストを強制的にメインモデルへ戻します。`/agents → Settings → Agent mentions` で切り替えます
-- **スクリプトによるワークフロー**：`SubagentWorkflow` ツールは、多数のサブエージェントをオーケストレーションする決定論的な JavaScript スクリプトを実行します：`agent()`、`parallel()`、`pipeline()`、`phase()`、`log()`、`args` を使い、純粋なリテラルの `meta` ブロックでフェーズを宣言します。`pipeline()` にはステージ間のバリアがないため、ある項目が後のステージに進んでいる間に、別の項目がまだ最初のステージにあることもあります。これに対し `parallel()` は、最も遅いエージェントが終わるまで速いエージェントをすべて待たせます。ワークフローはライブカード付きでバックグラウンド実行され、`/agents → Workflows` または FleetView で実行を選ぶと中身を確認できます。`agent()` は `gate: "npm test"` も受け付け、別のモデルに尋ねる代わりにコマンドを実行して（分離されている場合はその worktree 内で）子エージェントを検証します。`resume: "<label>"` を使えば、コンテキストのコストを払い直さずに子エージェントを続行できます。スクリプトはワーカースレッド上の `node:vm` サンドボックスで実行され、そこでは `Date.now()`、`Math.random()`、`eval` は例外を投げます。デフォルトで有効ですが、競合する拡張機能がある場合は自動的に譲ります：別の拡張機能がすでに `Workflow` または `SubagentWorkflow` ツールを提供している場合、モデルに 2 つのオーケストレーターを見せる代わりに、警告を出してそのセッションでは自身を無効にします。`subagents.json` の `"workflowsEnabled"` か `/agents → Settings → Workflows` で、有効・無効のどちらかに固定できます。Claude Code の `Workflow` ツール向けに書かれたスクリプトは変更なしで動きます：グローバル変数は同じで、`schema` は Claude Code とまったく同じく検証済みのオブジェクトを返します。`budget` は存在しますが、常に「トークン目標なし」を返します（pi にはそのような指示がないため）。そのため `budget.total` で分岐するパターンも、作者が意図したとおりの分岐を通ります。ネストした `workflow()` で、保存済みのワークフローを 1 階層まで組み合わせられます。**[詳細ガイド](https://github.com/tintinweb/pi-subagents/blob/master/docs/workflows.md)**
 - **実行中のステアリング**：実行中のエージェントにメッセージを差し込み、再起動せずに作業の方向を変えます
 - **セッションの再開**：会話のコンテキストをすべて保ったまま、エージェントが止まったところから続けます。デフォルトではバックグラウンドで再開し、新しく起動したときと同じく完了時に通知します。`run_in_background: false` を渡すとブロックして結果をインラインで受け取ります
 - **穏やかなターン制限**：エージェントは強制中断の前に「まとめに入る」よう警告を受けるため、途中で切れた出力ではなく、きれいな部分結果を返します
@@ -133,7 +131,7 @@ Agent({
 - バックグラウンドに移したエージェントには、親での Esc は届かなくなります。`/agents → Running agents` で `x` を押して停止してください。
 - 一方向の操作です：フォアグラウンドに戻す方法はありません。
 - 同じアシスタントメッセージ内の他のツール呼び出しは、完了するまでモデルの次のターンを引き続きブロックします。pi は 1 つのメッセージのツール呼び出しを 1 つのバッチとして実行するためです。
-- 次の場合は使えません：空きを待ってまだキューにあるフォアグラウンド呼び出し、フォアグラウンドの `resume`、ワークフローのエージェント、ネストした子エージェント。自動タイムアウトはありません。
+- 次の場合は使えません：空きを待ってまだキューにあるフォアグラウンド呼び出し、フォアグラウンドの `resume`、ネストした子エージェント。自動タイムアウトはありません。
 
 ### スケジュール
 
@@ -171,9 +169,9 @@ Agent({
 
 | コマンド | 説明 |
 |---------|-------------|
-| `/agents` | 対話型のエージェント管理メニュー：エージェントタイプ、実行中のエージェント、スケジュールされたジョブ、ワークフローの実行、設定 |
+| `/agents` | 対話型のエージェント管理メニュー：エージェントタイプ、実行中のエージェント、スケジュールされたジョブ、設定 |
 
-ワークフローのインスペクターや CLI フラグなどの詳細は [英語版 README](README.md#commands) を参照してください。
+その他の詳細は [英語版 README](README.md#commands) を参照してください。
 
 ## 詳細情報（英語）
 
@@ -181,10 +179,10 @@ Agent({
 
 - [UI](README.md#ui)：FleetView、フルスクリーンの会話ビューアー、エージェントメンション
 - [デフォルトのエージェントタイプ](README.md#default-agent-types)と[カスタムエージェント](README.md#custom-agents)：frontmatter のフィールド、ネストしたサブエージェント、ツールと拡張機能の範囲
-- [ツール](README.md#tools)：`Agent`、`SubagentWorkflow`、`get_subagent_result`、`steer_subagent` のパラメーター表
+- [ツール](README.md#tools)：`Agent`、`get_subagent_result`、`steer_subagent` のパラメーター表
 - [永続設定](README.md#persistent-settings)：すべての設定とデフォルト値
 - [イベント](README.md#events)と[拡張機能間 RPC](README.md#cross-extension-rpc)
-- [ワークフローガイド](docs/workflows.md)、[RPC ガイド](docs/rpc.md)、[パッケージ同梱エージェント](docs/packages.md)
+- [RPC ガイド](docs/rpc.md)、[パッケージ同梱エージェント](docs/packages.md)
 - [変更履歴](CHANGELOG.md)
 
 ## ライセンス

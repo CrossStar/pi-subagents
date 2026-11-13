@@ -4,8 +4,7 @@
  * The manager evicts a finished record ten minutes after it settles, and a
  * reload or restart drops it at once, but the agent's conversation is still in
  * its saved pi session. `Agent({ resume })` reopens it from the session's
- * `subagents:record` entry, under the same id; a workflow's `resume` reopens a
- * child from what its host kept for the run (#331, #385).
+ * `subagents:record` entry, under the same id (#331, #385).
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +21,6 @@ import { agentRecordEntryData, worktreeLost } from "../src/agent-record-entry.js
 import { runAgent } from "../src/agent-runner.js";
 import subagentsExtension from "../src/index.js";
 import type { AgentRecord } from "../src/types.js";
-import { createWorkflowHost } from "../src/workflow/host.js";
 import { ctx, type Hermetic, hermeticDir, makePi, textOf } from "./helpers/boot-extension.js";
 
 const MANAGER_KEY = Symbol.for("pi-subagents:manager");
@@ -282,83 +280,5 @@ describe("reclaiming an id", () => {
     ).toThrow(id);
     expect(manager.getRecord(id)?.description).toBe("first");
     manager.dispose();
-  });
-});
-
-describe("a workflow's resume once the manager evicted the child", () => {
-  /** A stub manager whose resume finds nothing live, as after eviction. */
-  function evictingManager(file: string | undefined, firstRun: Partial<AgentRecord> = {}) {
-    const settled = (overrides: Partial<AgentRecord> = {}) =>
-      ({
-        id: "child-7",
-        type: "general-purpose",
-        description: "worker",
-        status: "completed",
-        result: "done",
-        toolUses: 0,
-        startedAt: 0,
-        lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
-        compactionCount: 0,
-        sessionFile: file,
-        ...overrides,
-      }) as AgentRecord;
-    const spawnAndWait = vi.fn(async (_pi: any, _ctx: any, _type: string, _prompt: string, options: any, onSpawned?: (id: string) => void) => {
-      const record = settled(options.reclaim ? { result: "fixed" } : firstRun);
-      onSpawned?.(record.id);
-      return { id: record.id, record };
-    });
-    const resume = vi.fn(async () => undefined);
-    return { manager: { spawnAndWait, resume, abort: vi.fn() } as unknown as AgentManager, spawnAndWait, resume };
-  }
-
-  const request = { agentId: "wf-agent-0", index: 0, prompt: "build it", label: "worker", agentType: "general-purpose" };
-
-  it("reopens the child's saved session under the same id, still owned by the run", async () => {
-    const stub = evictingManager(sessionFile);
-    const host = createWorkflowHost({ pi: {} as any, ctx: ctx(), manager: stub.manager, workflowId: "wf-1" });
-
-    await host.spawnAgent(request);
-    const resumed = await host.resumeAgent?.("wf-agent-0", "fix the review findings");
-
-    const [, , type, prompt, options] = stub.spawnAndWait.mock.calls[1];
-    expect(type).toBe("general-purpose");
-    expect(prompt).toBe("fix the review findings");
-    expect(options).toMatchObject({ resumeSessionFile: sessionFile, reclaim: { id: "child-7" }, workflowId: "wf-1" });
-    expect(resumed).toMatchObject({ ok: true, text: "fixed" });
-  });
-
-  const wt = { path: "/wt/c", branch: "pi-agent-c", baseSha: "abc", workPath: "/wt/c" };
-
-  it("refuses, starting nothing, when the child's worktree held its work", async () => {
-    const stub = evictingManager(sessionFile, { worktree: wt, worktreeResult: { hasChanges: true, branch: "pi-agent-c" } });
-    const host = createWorkflowHost({ pi: {} as any, ctx: ctx(), manager: stub.manager, workflowId: "wf-1" });
-
-    await host.spawnAgent(request);
-    const resumed = await host.resumeAgent?.("wf-agent-0", "fix it");
-
-    expect(resumed).toEqual({ ok: false, error: "Agent child-7 cannot be resumed — its worktree no longer exists." });
-    expect(stub.spawnAndWait).toHaveBeenCalledTimes(1);
-  });
-
-  it("reopens a child whose worktree was removed clean", async () => {
-    const stub = evictingManager(sessionFile, { worktree: wt, worktreeResult: { hasChanges: false } });
-    const host = createWorkflowHost({ pi: {} as any, ctx: ctx(), manager: stub.manager, workflowId: "wf-1" });
-
-    await host.spawnAgent(request);
-    const resumed = await host.resumeAgent?.("wf-agent-0", "fix it");
-
-    expect(resumed).toMatchObject({ ok: true, text: "fixed" });
-  });
-
-  it("refuses, starting nothing, when the child's session file is gone", async () => {
-    const stub = evictingManager(sessionFile);
-    const host = createWorkflowHost({ pi: {} as any, ctx: ctx(), manager: stub.manager });
-
-    await host.spawnAgent(request);
-    rmSync(sessionFile);
-    const resumed = await host.resumeAgent?.("wf-agent-0", "fix it");
-
-    expect(resumed).toEqual({ ok: false, error: "Agent child-7 cannot be resumed — its session is gone." });
-    expect(stub.spawnAndWait).toHaveBeenCalledTimes(1);
   });
 });

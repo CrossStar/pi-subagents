@@ -29,11 +29,11 @@
 <p align="center">
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%E2%89%A5%201.1.0-6f42c1" alt="需要 pi >= 1.1.0"></a>
   <a href="https://pi.dev/packages/@tintinweb/pi-subagents"><img src="https://img.shields.io/badge/pi.dev-package-5b5bd6" alt="pi.dev 包"></a>
-  <img src="https://img.shields.io/badge/Claude%20Code-compatible%20tools%20%26%20workflows-d97757" alt="兼容 Claude Code">
+  <img src="https://img.shields.io/badge/Claude%20Code-compatible%20tools-d97757" alt="兼容 Claude Code">
   <a href="https://github.com/tintinweb/pi-subagents/commits/master"><img src="https://img.shields.io/github/last-commit/tintinweb/pi-subagents" alt="最近提交"></a>
 </p>
 
-<h3 align="center">为 pi 提供 Claude Code 风格的子代理与工作流编排。</h3>
+<h3 align="center">为 pi 提供 Claude Code 风格的子代理。</h3>
 
 <p align="center">
   <a href="#安装"><b>安装</b></a> ·
@@ -42,13 +42,12 @@
   <a href="README.md#custom-agents"><b>自定义代理 (EN)</b></a> ·
   <a href="README.md#tools"><b>工具 (EN)</b></a> ·
   <a href="README.md#persistent-settings"><b>设置 (EN)</b></a> ·
-  <a href="https://github.com/tintinweb/pi-subagents/blob/master/docs/workflows.md"><b>工作流 (EN)</b></a> ·
   <a href="https://github.com/tintinweb/pi-subagents/blob/master/CHANGELOG.md"><b>更新日志 (EN)</b></a>
 </p>
 
 <p align="center"><code>pi install npm:@tintinweb/pi-subagents</code></p>
 
-一个 [pi](https://pi.dev) 扩展，为 pi 带来 **Claude Code 风格的自主子代理与工作流编排**。启动在独立会话中运行的专用代理，每个代理都有自己的工具、系统提示词、模型和思考级别。你可以让它们在后台运行（默认），也可以阻塞等待；可以在运行中引导它们、恢复已完成的会话，还可以定义自己的代理类型。当编排不应临场发挥时，可以把一段确定性的 JavaScript 脚本交给 `SubagentWorkflow` 工具（`agent()`、`parallel()`、`pipeline()`），为 Claude Code 的 `Workflow` 工具编写的脚本无需修改即可在这里运行。
+一个 [pi](https://pi.dev) 扩展，为 pi 带来 **Claude Code 风格的自主子代理**。启动在独立会话中运行的专用代理，每个代理都有自己的工具、系统提示词、模型和思考级别。你可以让它们在后台运行（默认），也可以阻塞等待；可以在运行中引导它们、恢复已完成的会话，还可以定义自己的代理类型。
 
 <img width="600" alt="pi-subagents 截图" src="https://github.com/tintinweb/pi-subagents/raw/master/media/screenshot.png" />
 
@@ -66,10 +65,9 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 - **FleetView**：在编辑器下方显示的 Claude Code 风格的可导航列表，包含 `main` 和所有正在运行的子代理（最早启动的排在最前）。在空提示符下按 `↓`（或 `←`）进入，`↑`/`↓` 移动选择，`Enter` 打开所选代理的实时自动更新对话，`Esc` 返回。已完成的代理会短暂保留后再移出列表；查看器在代理完成后仍保持打开，方便你阅读最终输出。通过 `/agents → Settings → Fleet view` 开关
 - **对话查看器**：在 `/agents` 中选择任意代理，即可打开实时滚动的浮层，显示其完整对话（自动跟随新内容，向上滚动即暂停）。在 pi 的全屏模式下，它是一个无边框、占满整个终端、支持鼠标的查看器。按 `Enter` 打开输入框，输入内容后再按 `Enter` 发送，即可内联引导正在运行的代理（`Esc` 或提交空内容则返回）。这条消息会作为用户消息显示，并在代理当前的工具调用结束后调整其工作方向。在正在运行的前台 `Agent` 调用上按 `b`，可将该运行转到后台（参见[将前台代理转到后台](#将前台代理转到后台)）。按 `x`（再按一次 `x` 确认）可停止仍在运行的代理；引导和停止同样适用于后台代理。工具调用的显示方式与 pi 自身的对话记录一致，使用代理会话中注册的渲染器：bash 调用显示命令和输出，`read` 显示行号，`edit` 显示 diff，扩展工具使用自己的渲染器，没有渲染器的工具则回退为显示参数和截断后的输出预览。`ctrl+o`（或 `app.tools.expand` 绑定的任意按键）可展开被折叠的工具输出。助手文本以 Markdown 渲染；按 `m` 可在关闭、仅助手、全部三种模式之间循环切换（参见 [Viewer markdown](README.md#persistent-settings)）
 - **自定义代理类型**：在 `.pi/agents/<name>.md` 或 `.agents/agents/<name>.md`（项目级）或全局位置定义代理，使用 YAML frontmatter：自定义系统提示词、模型选择、思考级别、工具限制，以及兼容 Claude Code 的彩色名称徽标
-- **随包分发的代理**：pi 包可以在其 `package.json` 中用 `"pi": { "subagents": { "agents": ["./agents"] } }` 声明自己的子代理（以及工作流脚本），这样只需 `pi install` 即可完成全部配置：无需在每台机器或每次容器启动时把文件复制到 `.pi/agents/`。只读取 pi 实际安装的包（绝不读取 `node_modules`），包中定义的代理优先级低于你自己编写的所有代理，`/agents` 以只读方式显示它们，并提供 Eject 和 Disable。用 `packageAgents` / `packageWorkflows` 缩小范围或关闭此功能。**[完整指南](https://github.com/tintinweb/pi-subagents/blob/master/docs/packages.md)**
+- **随包分发的代理**：pi 包可以在其 `package.json` 中用 `"pi": { "subagents": { "agents": ["./agents"] } }` 声明自己的子代理，这样只需 `pi install` 即可完成全部配置：无需在每台机器或每次容器启动时把文件复制到 `.pi/agents/`。只读取 pi 实际安装的包（绝不读取 `node_modules`），包中定义的代理优先级低于你自己编写的所有代理，`/agents` 以只读方式显示它们，并提供 Eject 和 Disable。用 `packageAgents` 缩小范围或关闭此功能。**[完整指南](https://github.com/tintinweb/pi-subagents/blob/master/docs/packages.md)**
 - **嵌套子代理**：需主动开启、默认关闭的委派功能：设置了 `allowed_subagents` 的自定义代理会获得自己的 `Agent`、`get_subagent_result` 和 `steer_subagent` 工具（作用范围仅限它自己的子代理），嵌套深度从主会话起算有上限（默认 2）。它只能控制自己的子代理；它结束时，这些子代理会被停止，其对话记录和 token 开销也会汇总到它名下。该允许列表是一道权限边界：子代理使用自己的工具运行，因此要像选择 `tools:` 本身一样谨慎地选择它
 - **代理提及**：子代理是一等公民：在提示符中输入 `@explore also check the RPC path`，这段话会发给该代理而不是主模型，且不会有任何内容进入聊天。同一种语法覆盖整个生命周期：在它运行时给它发消息，在它完成后恢复它，很久以后再从磁盘重新打开它的会话，或者在它从未运行过时启动它。提及一个未在运行的代理时，会通过一个不在界面上显示的克隆对话来启动它，因此它能获得 Claude Code 那种根据上下文编写的提示词和一次真正的 `Agent` 工具调用，同样不会有任何内容进入聊天；`direct` 模式则直接用你的文本启动它，完全不调用模型。编排者可以给代理设置 `name`，这样你就能用 `@auth-audit` 指代它，`steer_subagent`/`get_subagent_result` 也接受这类名称。`@` 会与 pi 的文件补全一起补全正在运行的代理、可恢复的代理和可启动的类型；`@main` 强制把文本发回主模型。通过 `/agents → Settings → Agent mentions` 开关
-- **脚本化工作流**：`SubagentWorkflow` 工具运行一段确定性的 JavaScript 脚本来编排多个子代理：`agent()`、`parallel()`、`pipeline()`、`phase()`、`log()` 和 `args`，并用一个纯字面量的 `meta` 块声明各阶段。`pipeline()` 的各阶段之间没有屏障，因此一个条目可能已进入后面的阶段，而另一个还在第一阶段；`parallel()` 则不同，它会让所有较快的代理空等，直到最慢的那个完成。工作流在后台运行并显示实时卡片，可通过 `/agents → Workflows` 或在 FleetView 中选择该运行来查看。`agent()` 还接受 `gate: "npm test"`，通过运行一条命令（隔离时在其 worktree 中运行）来验证子代理，而不是询问另一个模型；`resume: "<label>"` 用于继续一个子代理，而不必重复承担它的上下文开销。脚本在 worker 线程上的 `node:vm` 沙箱中运行，其中 `Date.now()`、`Math.random()` 和 `eval` 会抛出异常。默认开启，但遇到同类会主动让位：如果另一个扩展已经提供了 `Workflow` 或 `SubagentWorkflow` 工具，本扩展会发出警告并在本会话中禁用自身，而不是给模型提供两个编排器。可在 `subagents.json` 中用 `"workflowsEnabled"` 或通过 `/agents → Settings → Workflows` 将其固定为开启或关闭。为 Claude Code 的 `Workflow` 工具编写的脚本无需修改即可在这里运行：全局变量相同，`schema` 返回经过校验的对象，与在 Claude Code 中完全一致；`budget` 存在，但始终报告没有 token 目标（pi 没有这样的指令），因此以 `budget.total` 作为条件的写法仍会走它们原本预期的分支；嵌套的 `workflow()` 可以组合已保存的工作流，最多一层。**[完整指南](https://github.com/tintinweb/pi-subagents/blob/master/docs/workflows.md)**
 - **运行中引导**：向正在运行的代理注入消息，无需重启即可改变其工作方向
 - **会话恢复**：从代理停下的地方继续，保留完整的对话上下文。默认以分离方式恢复，并在完成时通知你，与新启动的代理一样；传入 `run_in_background: false` 则阻塞等待并内联获取结果
 - **轮次上限时优雅收尾**：代理在被强制中止前会收到“收尾”警告，从而产出干净、可用的部分结果，而不是被截断的输出
@@ -133,7 +131,7 @@ Agent({
 - 在父代理中按 Esc 对已转到后台的代理不再生效。请在 `/agents → Running agents` 中用 `x` 停止它。
 - 这是单向操作：无法再切回前台。
 - 同一条助手消息中的其他工具调用仍会阻塞模型的下一轮，直到它们完成；pi 把一条消息中的所有工具调用作为一批运行。
-- 以下情况不提供此功能：仍在排队等待空位的前台调用、前台 `resume`、工作流中的代理，以及嵌套子代理。没有自动超时。
+- 以下情况不提供此功能：仍在排队等待空位的前台调用、前台 `resume`，以及嵌套子代理。没有自动超时。
 
 ### 定时调度
 
@@ -171,9 +169,9 @@ Agent({
 
 | 命令 | 说明 |
 |---------|-------------|
-| `/agents` | 交互式代理管理菜单：代理类型、正在运行的代理、定时任务、工作流运行、设置 |
+| `/agents` | 交互式代理管理菜单：代理类型、正在运行的代理、定时任务、设置 |
 
-工作流检查器、CLI 参数等详情见[英文 README](README.md#commands)。
+更多详情见[英文 README](README.md#commands)。
 
 ## 更多详情（英文）
 
@@ -181,10 +179,10 @@ Agent({
 
 - [UI](README.md#ui)：FleetView、全屏对话查看器、代理提及
 - [默认代理类型](README.md#default-agent-types)与[自定义代理](README.md#custom-agents)：frontmatter 字段、嵌套子代理、工具与扩展范围
-- [工具](README.md#tools)：`Agent`、`SubagentWorkflow`、`get_subagent_result`、`steer_subagent` 的参数表
+- [工具](README.md#tools)：`Agent`、`get_subagent_result`、`steer_subagent` 的参数表
 - [持久化设置](README.md#persistent-settings)：所有设置项及其默认值
 - [事件](README.md#events)与[跨扩展 RPC](README.md#cross-extension-rpc)
-- [工作流指南](docs/workflows.md)、[RPC 指南](docs/rpc.md)、[随包分发的代理](docs/packages.md)
+- [RPC 指南](docs/rpc.md)、[随包分发的代理](docs/packages.md)
 - [更新日志](CHANGELOG.md)
 
 ## 许可证

@@ -113,8 +113,8 @@ export function findAgentRecordEntry(ctx: ExtensionContext, id: string, matchHan
 
 /**
  * Whether an evicted agent's saved conversation can be reopened, and the
- * agent type to reopen it under. Shared by `@handle`, `Agent({ resume })` and
- * a workflow's `resume`, so all three refuse the same cases in the same words;
+ * agent type to reopen it under. Shared by `@handle` and `Agent({ resume })`,
+ * so both refuse the same cases in the same words;
  * `reason` completes "Could not resume X —" and "cannot be resumed —".
  *
  * The file is checked here rather than left to SessionManager.open: that runs

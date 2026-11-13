@@ -30,7 +30,6 @@ import { assignHandle, handleBase } from "./mention.js";
 import { describeModel } from "./model-resolver.js";
 import type { AgentInvocation, AgentRecord, AgentTombstone, IsolationMode, MentionResolution, Pool, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage, type LifetimeUsage } from "./usage.js";
-import type { CompiledSchema } from "./workflow/json-schema.js";
 import { cleanupWorktree, createWorktree, isWorktreeIsolationEnabled, pruneWorktrees, } from "./worktree.js";
 
 export type OnAgentComplete = (record: AgentRecord) => void;
@@ -122,14 +121,14 @@ function assertValidSpawnCwd(cwd: unknown): asserts cwd is string | undefined | 
  * How WIDE nesting goes is bounded by `maxConcurrentNested` — see `spawn`.
  */
 function occupiesPoolSlot(
-  record: Pick<AgentRecord, "isBackground" | "parentAgentId" | "workflowId">,
+  record: Pick<AgentRecord, "isBackground" | "parentAgentId">,
 ): boolean {
   return !!record.isBackground && isTopLevelAgent(record);
 }
 
 /**
  * Whether a record is one of the session's own agents, rather than something
- * another agent or a workflow owns.
+ * another agent owns.
  *
  * The single definition behind every user-facing surface — the fleet list, the
  * widget, the `/agents` menus, `@handle` resolution, and the completion events
@@ -137,9 +136,9 @@ function occupiesPoolSlot(
  * it separately would double-count the same work in the places a person reads.
  */
 export function isTopLevelAgent(
-  record: Pick<AgentRecord, "parentAgentId" | "workflowId">,
+  record: Pick<AgentRecord, "parentAgentId">,
 ): boolean {
-  return record.parentAgentId === undefined && record.workflowId === undefined;
+  return record.parentAgentId === undefined;
 }
 
 /**
@@ -157,17 +156,11 @@ export function isTopLevelAgent(
  * behind its own parent is a guaranteed deadlock rather than a possible one.
  * Enforced here rather than at the call site so no caller can reintroduce it.
  *
- * A workflow's children go out through `spawnAndWait` and so are `blocking`
- * too, and are excluded on the same `isTopLevelAgent` test as the background
- * pool: the run already caps how many of its agents run at once, and charging
- * them here as well would let one fan-out queue behind a limit meant for the
- * session's own work.
- *
  * Like the background pool this bounds width at the top level only — a parent's
  * own fan-out is limited by nothing but its turn budget.
  */
 function occupiesForegroundSlot(
-  record: Pick<AgentRecord, "blocking" | "parentAgentId" | "workflowId">,
+  record: Pick<AgentRecord, "blocking" | "parentAgentId">,
 ): boolean {
   return !!record.blocking && isTopLevelAgent(record);
 }
@@ -208,8 +201,7 @@ interface SpawnOptions {
    * `spawnTopLevel` strips it from anything a caller sends.
    *
    * `id` keeps the evicted agent's id too, so the id the model already holds
-   * names the reopened conversation (`Agent({ resume })`, a workflow's
-   * `resume`). A name is taken back only while nothing else holds it — see
+   * names the reopened conversation (`Agent({ resume })`). A name is taken back only while nothing else holds it — see
    * `reclaimable`.
    */
   reclaim?: { id?: string; handle?: string; alias?: string };
@@ -237,21 +229,6 @@ interface SpawnOptions {
    * defer a detached start behind a queue its caller cannot see or release.
    */
   blocking?: boolean;
-  /**
-   * The workflow run this child belongs to, when a workflow spawned it.
-   *
-   * Ownership, not decoration. A workflow's children are the workflow's — they
-   * report through its card, its notification and its dialog, so they are
-   * filtered out of every top-level surface exactly as nested children are, and
-   * they take no `maxConcurrent` slot: the run has its own concurrency cap, and
-   * counting them twice would let one workflow starve the whole session.
-   */
-  workflowId?: string;
-  /**
-   * Make the child report through a `StructuredOutput` tool built from this
-   * compiled schema. Set only by the workflow host, for `agent({ schema })`.
-   */
-  structuredOutput?: CompiledSchema;
   /** Isolation mode — "worktree" creates a temp git worktree for the agent. */
   isolation?: IsolationMode;
   /**
@@ -263,22 +240,6 @@ interface SpawnOptions {
    * branch lands in that repo.
    */
   cwd?: string;
-  /**
-   * Last chance to look at an isolated agent's worktree, awaited immediately
-   * before it is committed to a branch and removed.
-   *
-   * Exists because that removal happens inside the settle path, before
-   * `spawnAndWait` resolves: by the time a caller has the finished record, the
-   * directory the child actually wrote in is gone. Anything that must inspect
-   * or verify that tree — a workflow `gate` is the motivating case — has to run
-   * here or it silently inspects the main tree instead.
-   *
-   * Fires only on the normal settle path, and only when a worktree was created.
-   * Not on the error path and not on the stop-during-copy guard: those are
-   * already failing, and delaying cleanup there would leak a copy for no gain.
-   * A rejection is swallowed — the hook can never keep the worktree alive.
-   */
-  onBeforeWorktreeCleanup?: (worktreePath: string) => Promise<void>;
   /** Resolved invocation snapshot captured for UI display. */
   invocation?: AgentInvocation;
   /** Parent abort signal — when aborted, the subagent is also stopped. */
@@ -504,14 +465,14 @@ export class AgentManager {
   }
 
   /**
-   * Running nested children outside workflows — what `maxConcurrentNested`
+   * Running nested children — what `maxConcurrentNested`
    * caps. Read from the records rather than kept as a counter, so no start or
    * settle path can leak a slot.
    */
   private runningNestedCount(): number {
     let n = 0;
     for (const record of this.agents.values()) {
-      if (record.status === "running" && record.parentAgentId !== undefined && record.workflowId === undefined) n++;
+      if (record.status === "running" && record.parentAgentId !== undefined) n++;
     }
     return n;
   }
@@ -570,7 +531,7 @@ export class AgentManager {
     const isolated = config?.isolated ?? options.isolated;
     assertExecutionCapabilities(backend, {
       cwdOverride: options.cwd != null,
-      worktree: !options.resumeSessionFile && (options.workflowId !== undefined ? options.isolation : config?.isolation ?? options.isolation) === "worktree" && isWorktreeIsolationEnabled(),
+      worktree: !options.resumeSessionFile && (config?.isolation ?? options.isolation) === "worktree" && isWorktreeIsolationEnabled(),
       memory: !!config?.memory,
       nesting: !isolated && !!config?.allowedSubagents,
       extensions: !isolated && !!(config?.extSelectors?.length || config?.mcpToolPatterns?.length || Array.isArray(config?.extensions)),
@@ -584,11 +545,9 @@ export class AgentManager {
     // queue — its parent waits on it while holding a slot — so refusing is the
     // only bound that cannot deadlock. The parent is told to do the work itself,
     // as Claude Code tells it over CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS. Only
-    // nested children count; top-level agents have their pools, and a
-    // workflow's agents the run's own cap.
+    // nested children count; top-level agents have their pools.
     if (
       options.parentAgentId !== undefined &&
-      options.workflowId === undefined &&
       this.maxConcurrentNested > 0 &&
       this.runningNestedCount() >= this.maxConcurrentNested
     ) {
@@ -610,7 +569,7 @@ export class AgentManager {
     const record: AgentRecord = {
       id,
       type,
-      // Owned children — nested, or a workflow's — are filtered out of every
+      // Owned (nested) children are filtered out of every
       // top-level surface, so no handle: nothing can address them and they must
       // not consume a name a top-level sibling could otherwise take.
       handle: !isTopLevelAgent(options)
@@ -647,7 +606,6 @@ export class AgentManager {
       invocation: options.invocation,
       depth: options.depth ?? 1,
       parentAgentId: options.parentAgentId,
-      workflowId: options.workflowId,
       maxSubagentDepth: options.maxSubagentDepth,
       rootSessionId: options.rootSessionId,
       // A reopen continues this file until its session says otherwise (a fork
@@ -847,17 +805,13 @@ export class AgentManager {
     // because cross-extension RPC forwards its options unvalidated — a schema
     // that omits the field can't stop a caller that never saw the schema.
     // The agent file's `isolation:` is resolved here too, not by each caller:
-    // mentions pass none, and RPC forwards only its caller's value. Workflow
-    // children are the exception, as in Claude Code, whose workflow agent()
-    // reads only the script's option and ignores the definition's.
+    // mentions pass none, and RPC forwards only its caller's value.
     // A reopen never gets a worktree, as in Claude Code: a fresh copy of HEAD
     // would not hold the earlier run's edits, and a reopen whose old worktree
     // held any is refused before it gets here (`reopenTarget`).
     const isolation = options.resumeSessionFile !== undefined
       ? undefined
-      : options.workflowId !== undefined
-        ? options.isolation
-        : getAgentConfig(type)?.isolation ?? options.isolation;
+      : getAgentConfig(type)?.isolation ?? options.isolation;
     let worktreeCwd: string | undefined;
     if (isolation === "worktree" && isWorktreeIsolationEnabled()) {
       const wt = await createWorktree(pi, baseCwd, id);
@@ -916,10 +870,8 @@ export class AgentManager {
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
-      structuredOutput: options.structuredOutput,
       resumeSessionFile: options.resumeSessionFile,
       nested: options.parentAgentId !== undefined,
-      workflow: options.workflowId !== undefined,
       // Worktree wins for the working dir (the agent must run in the copy —
       // which, with a custom cwd, was created from that target). Config stays
       // with the parent project when a caller-supplied cwd is in play; it must
@@ -998,13 +950,8 @@ export class AgentManager {
         options.onSessionCreated?.(session);
       },
     })
-      .then(async ({ responseText, session, aborted, steered, failure, structuredJson, structuredRetried }) => {
+      .then(async ({ responseText, session, aborted, steered, failure }) => {
         this.settleOutcome(record, { text: responseText, failure, aborted, steered });
-        // Kept beside `result`, never inside it: `result` is prose meant for a
-        // reader — it is previewed, transcribed, and appended to below — while
-        // this is a machine-readable payload one caller asked for by schema.
-        record.structuredJson = structuredJson;
-        record.structuredRetried = structuredRetried;
         record.session = session;
 
         detach();
@@ -1017,23 +964,12 @@ export class AgentManager {
 
         // Clean up worktree if used
         if (record.worktree) {
-          // The one moment the child's tree still exists and the child is done
-          // writing to it. try/catch, not decoration: a hook that throws must
-          // not leave the worktree behind.
-          if (options.onBeforeWorktreeCleanup) {
-            try {
-              await options.onBeforeWorktreeCleanup(record.worktree.path);
-            } catch { /* ignore — never block cleanup */ }
-          }
           const wtResult = await cleanupWorktree(pi, baseCwd, record.worktree, options.description);
           record.worktreeResult = wtResult;
           if (wtResult.hasChanges && wtResult.branch) {
             // With a caller-supplied cwd the branch lives in THAT repo, not the
             // parent session's — say so, or the orchestrator merges in the wrong repo.
             const repoNote = customCwd !== undefined ? ` in \`${baseCwd}\`` : "";
-            // Appended to the prose only. A structured child's caller parses
-            // `structuredJson`, which stays untouched — but `result` is also
-            // what a human reads, so the note still belongs on it.
             record.result = (record.result ?? "") +
               `\n\n---\nChanges saved to branch \`${wtResult.branch}\`${repoNote}. Merge with: \`git merge ${wtResult.branch}\`${customCwd !== undefined ? ` (run in \`${baseCwd}\`)` : ""}`;
           }
@@ -1257,8 +1193,7 @@ export class AgentManager {
    * nobody is blocking on (a background or detached spawn, one already handed
    * off, or a foreground RESUME — `blocking` is cleared when the spawned run
    * settles, and a resume never charged the slot this would move), and one
-   * that reports through something other than the session (a nested child, a
-   * workflow's agent).
+   * that reports through something other than the session (a nested child).
    *
    * The background slot is taken even when the pool is full: suspending a
    * live run is not an option, so it runs over the limit and queued

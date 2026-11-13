@@ -260,8 +260,6 @@ describe("AgentManager.sendToBackground", () => {
 
     // Nested children report only through their owner — never to the session.
     const childWait = fg(manager, "child", { parentAgentId: owner.id });
-    // A workflow's agents report to the script that spawned them.
-    const workflowWait = fg(manager, "workflow-child", { workflowId: "wf-1" });
     // Detached `isBackground: false` (RPC / @handle / registry): nobody blocks on it.
     manager.spawn(mockPi, mockCtx, "general-purpose", "detached", {
       description: "detached",
@@ -270,7 +268,7 @@ describe("AgentManager.sendToBackground", () => {
     const background = bg(manager, "background");
     await flush();
 
-    for (const prompt of ["child", "workflow-child", "detached", "background"]) {
+    for (const prompt of ["child", "detached", "background"]) {
       expect(recordFor(manager, prompt).status).toBe("running");
       expect(manager.sendToBackground(recordFor(manager, prompt).id)).toBe(false);
     }
@@ -278,8 +276,8 @@ describe("AgentManager.sendToBackground", () => {
     expect(manager.sendToBackground("no-such-agent")).toBe(false);
 
     expect(manager.sendToBackground(owner.id)).toBe(true);
-    for (const prompt of ["owner", "child", "workflow-child", "detached", "background"]) resolvers.get(prompt)!();
-    await Promise.all([ownerWait, childWait, workflowWait]);
+    for (const prompt of ["owner", "child", "detached", "background"]) resolvers.get(prompt)!();
+    await Promise.all([ownerWait, childWait]);
   });
 
   it("refuses a blocking spawn still waiting in the queue", async () => {

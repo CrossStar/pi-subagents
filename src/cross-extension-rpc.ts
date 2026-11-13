@@ -43,7 +43,7 @@ export interface SpawnCapable {
    * to the two fields `isTopLevelAgent` reads, so the RPC layer keeps its
    * deliberately shallow view of the manager.
    */
-  getRecord(id: string): Pick<AgentRecord, "parentAgentId" | "workflowId"> | undefined;
+  getRecord(id: string): Pick<AgentRecord, "parentAgentId"> | undefined;
   /**
    * Mark a settled agent's result as read by the caller, suppressing the
    * completion notification — what `get_subagent_result` does when it returns
@@ -171,7 +171,7 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
   );
 
   // Only the session's own agents are this RPC's to stop or steer. A nested
-  // child or a workflow's agent is owned by something that is *waiting on it*,
+  // child is owned by something that is *waiting on it*,
   // and aborting or redirecting it out from under that owner turns another
   // extension's request into a failed step here. Defence in depth rather than
   // a live hole: no RPC hands out agent ids, so a caller has no ordinary way to
@@ -180,7 +180,7 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
   const assertOwned = (agentId: string): void => {
     const record = manager.getRecord(agentId);
     if (!record) throw new Error("Agent not found");
-    if (!isTopLevelAgent(record)) throw new Error("Agent is owned by another agent or workflow");
+    if (!isTopLevelAgent(record)) throw new Error("Agent is owned by another agent");
   };
 
   const unsubStop = handleRpc<{ requestId: string; agentId: string }>(

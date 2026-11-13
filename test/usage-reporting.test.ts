@@ -371,7 +371,6 @@ describe("reporting subagent usage back to the parent session", () => {
       expect(typeof events[0].id).toBe("string");
       // A top-level agent has no owner: the keys are absent, not `undefined`.
       expect(events[0]).not.toHaveProperty("parentAgentId");
-      expect(events[0]).not.toHaveProperty("workflowId");
     });
 
     it("is emitted regardless of reportUsage", async () => {
@@ -395,7 +394,7 @@ describe("reporting subagent usage back to the parent session", () => {
     });
 
     it("carries the requested level when the agent did not get it", async () => {
-      // A workflow asking for `minimal` on a model whose lowest level is `low`
+      // A caller asking for `minimal` on a model whose lowest level is `low`
       // runs at `low`; the ledger should be able to say so, not relabel it.
       const { pi, tools } = boot({});
       let spawned = false;

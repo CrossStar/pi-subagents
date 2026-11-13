@@ -33,10 +33,10 @@ export interface SubagentsSettings {
    */
   maxConcurrentForeground?: number;
   /**
-   * Cap on running nested children (outside workflows) — `0` = unlimited,
+   * Cap on running nested children — `0` = unlimited,
    * default 10. A nested spawn over it is refused, not queued, and the parent
-   * is told to do the work itself (#352). Top-level and workflow agents neither
-   * count nor are refused.
+   * is told to do the work itself (#352). Top-level agents neither count nor are
+   * refused.
    */
   maxConcurrentNested?: number;
   /**
@@ -151,7 +151,7 @@ export interface SubagentsSettings {
   agentMentions?: AgentMentionMode;
   /**
    * Whether subagents persist their pi session by default, so `@handle`,
-   * `Agent({ resume })` and a workflow's `resume` can reopen an agent's
+   * and `Agent({ resume })` can reopen an agent's
    * conversation long after its in-memory record is gone.
    * Defaults to `true`. Per-agent `persist_session:` frontmatter overrides it
    * in both directions. Turning it off restores the previous behaviour, where
@@ -205,27 +205,6 @@ export interface SubagentsSettings {
    * scheduler and the unvalidated cross-extension RPC path.
    */
   worktreeIsolation?: boolean;
-  /**
-   * Master switch for scripted workflows. Defaults to `true`.
-   *
-   * Off is not a soft hide: the `SubagentWorkflow` tool is never registered, so
-   * the model is not told it exists and cannot call it, the `/agents`
-   * Workflows entry is hidden, and `--subagents-workflow-file` is refused.
-   *
-   * Absent is not the same as `true`. Unset means *auto*: on, but yielding to
-   * another extension that already offers a workflow tool, because two
-   * orchestrators in one tool spec is a worse default than none — the model
-   * has to guess which to call, and pays for both descriptions to find out.
-   * Setting it explicitly pins the answer in both directions: `true` keeps
-   * ours whatever else is loaded, `false` is off regardless. See
-   * `resolveWorkflowCollisions` in index.ts.
-   *
-   * Read once at extension init, before registration, so flipping it in
-   * `/agents → Settings` takes effect on the next pi session — the same
-   * contract `schedulingEnabled` has, and for the same reason: a tool spec is
-   * fixed once pi has it.
-   */
-  workflowsEnabled?: boolean;
   /**
    * Hard ceiling on nested subagent delegation, counted from the main session:
    * main = 0, its subagents = 1, their children = 2. Defaults to `2`; `0` or `1`
@@ -319,20 +298,6 @@ export interface SubagentsSettings {
    */
   packageAgents?: boolean | string[];
   /**
-   * The same gate for workflow scripts declared by installed pi packages
-   * (`pi.subagents.workflows`). Defaults to `true`.
-   *
-   * Deliberately separate from `packageAgents` rather than folded into it: an
-   * agent is markdown we hand to a model, a workflow is `.js` we execute. Both
-   * still sit below the package's own `extensions/`, which pi runs unsandboxed,
-   * so the default matches — but a user who wants package agents without package
-   * workflow scripts can have that without giving up either wholesale.
-   *
-   * No-op when `workflowsEnabled` is off: the tool is never registered, so there
-   * is nothing to resolve a workflow name against.
-   */
-  packageWorkflows?: boolean | string[];
-  /**
    * How much of the conversation viewer's transcript renders as Markdown.
    * Defaults to `assistant`. Applied live — the viewer's `m` key cycles this
    * same setting, so a choice made in the overlay persists like one made in
@@ -369,7 +334,6 @@ export interface SettingsAppliers {
   setWidgetMode: (mode: WidgetMode) => void;
   setOutputTranscript: (b: boolean) => void;
   setWorktreeIsolation: (b: boolean) => void;
-  setWorkflowsEnabled: (b: boolean) => void;
   setMaxSubagentDepth: (n: number) => void;
   setFallbackSubagent: (v: string | undefined) => void;
   setReportUsage: (b: boolean) => void;
@@ -377,7 +341,6 @@ export interface SettingsAppliers {
   setShowModel: (b: boolean) => void;
   setViewerMarkdown: (mode: ViewerMarkdownMode) => void;
   setPackageAgents: (gate: boolean | string[]) => void;
-  setPackageWorkflows: (gate: boolean | string[]) => void;
 }
 
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
@@ -521,13 +484,8 @@ function sanitize(raw: unknown): SubagentsSettings {
   if (typeof r.viewerMarkdown === "string" && VALID_VIEWER_MARKDOWN_MODES.has(r.viewerMarkdown)) {
     out.viewerMarkdown = r.viewerMarkdown as ViewerMarkdownMode;
   }
-  if (typeof r.workflowsEnabled === "boolean") {
-    out.workflowsEnabled = r.workflowsEnabled;
-  }
   const packageAgents = sanitizePackageGate(r.packageAgents);
   if (packageAgents !== undefined) out.packageAgents = packageAgents;
-  const packageWorkflows = sanitizePackageGate(r.packageWorkflows);
-  if (packageWorkflows !== undefined) out.packageWorkflows = packageWorkflows;
   if (r.fallbackSubagent === false) {
     // The only non-string spelling worth accepting: a boolean would otherwise be
     // dropped, silently leaving the PERMISSIVE default in place. Every string is
@@ -614,9 +572,7 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   if (typeof s.showCost === "boolean") appliers.setShowCost(s.showCost);
   if (typeof s.showModel === "boolean") appliers.setShowModel(s.showModel);
   if (s.viewerMarkdown) appliers.setViewerMarkdown(s.viewerMarkdown);
-  if (typeof s.workflowsEnabled === "boolean") appliers.setWorkflowsEnabled(s.workflowsEnabled);
   if (s.packageAgents !== undefined) appliers.setPackageAgents(s.packageAgents);
-  if (s.packageWorkflows !== undefined) appliers.setPackageWorkflows(s.packageWorkflows);
 }
 
 /**
