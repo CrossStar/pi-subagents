@@ -281,7 +281,7 @@ describe("agent-runner final output capture", () => {
     expect(settingsManagerCreate).toHaveBeenCalledWith("/tmp/worktree", "/mock/agent-dir", { projectTrusted: true });
     // Same claim as before `rememberAgents` flipped the default — the effective
     // cwd reaches the session manager — now via the persistent constructor.
-    expect(sessionManagerCreate).toHaveBeenCalledWith("/tmp/worktree", undefined, expect.anything());
+    expect(sessionManagerCreate).toHaveBeenCalledWith("/tmp/worktree", expect.stringMatching(/^\/mock\/agent-dir\/subagent-sessions\/[a-f0-9]{64}$/), expect.anything());
     expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
       cwd: "/tmp/worktree",
       agentDir: "/mock/agent-dir",
@@ -977,7 +977,7 @@ describe("agent-runner session persistence", () => {
     // the point of a resume is that the history is already there.
     expect(sessionManagerCreate).not.toHaveBeenCalled();
     expect(sessionManagerInMemory).not.toHaveBeenCalled();
-    expect(sessionManagerOpen).toHaveBeenCalledWith("/sessions/explore.jsonl", "/normal/pi/sessions");
+    expect(sessionManagerOpen).toHaveBeenCalledWith("/sessions/explore.jsonl", expect.stringMatching(/^\/mock\/agent-dir\/subagent-sessions\/[a-f0-9]{64}$/));
   });
 
   it("reopens the child in place when this parent spawned it", async () => {
@@ -1011,7 +1011,7 @@ describe("agent-runner session persistence", () => {
     expect(sessionManagerForkFrom).toHaveBeenCalledWith(
       "/sessions/explore.jsonl",
       "/child-cwd",
-      "/normal/pi/sessions",
+      expect.stringMatching(/^\/mock\/agent-dir\/subagent-sessions\/[a-f0-9]{64}$/),
       { parentSession: "/sessions/parent.jsonl" },
     );
     expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
@@ -1059,7 +1059,7 @@ describe("agent-runner session persistence", () => {
     expect(sessionManagerForkFrom).not.toHaveBeenCalled();
   });
 
-  it("uses pi's normal persistent session location and links to the parent session", async () => {
+  it("uses separate child storage despite parent settings and links to the parent session", async () => {
     vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ persistSession: true }));
     settingsManagerGetSessionDir.mockReturnValue("/normal/pi/sessions");
     const { session } = createSession("OK");
@@ -1070,7 +1070,7 @@ describe("agent-runner session persistence", () => {
     expect(sessionManagerInMemory).not.toHaveBeenCalled();
     expect(sessionManagerCreate).toHaveBeenCalledWith(
       "/tmp",
-      "/normal/pi/sessions",
+      expect.stringMatching(/^\/mock\/agent-dir\/subagent-sessions\/[a-f0-9]{64}$/),
       { parentSession: "/sessions/parent.jsonl" },
     );
     expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({

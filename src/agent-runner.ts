@@ -2,6 +2,7 @@
  * agent-runner.ts — Core execution engine: creates sessions, runs agents, collects results.
  */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -1183,7 +1184,9 @@ export async function runAgent(
 
   const storageCwd = backend ? configCwd : effectiveCwd;
   const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, storageCwd);
-  const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
+  // Keep child transcripts outside pi's main session discovery tree, regardless
+  // of the parent's environment or settings. Explicit agent overrides still win.
+  const defaultSessionDir = join(agentDir, "subagent-sessions", createHash("sha256").update(resolve(configCwd)).digest("hex"));
   // Frontmatter wins when it says anything; otherwise the project default,
   // which `rememberAgents` supplies for top-level agents only. Same precedence
   // as `outputTranscript`.
